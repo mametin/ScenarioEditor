@@ -12,12 +12,14 @@ function plainText(content: Content[], snapshot: Snapshot): string {
     if (item.kind === 'text') return item.text;
     if (item.kind === 'entity') return resolveReference(item.reference, snapshot).text;
     if (item.kind === 'nodeLink') return item.text;
-    return plainText(item.children, snapshot);
+    if (item.style === 'divider') return '────────';
+    if (item.style === 'bulletList' || item.style === 'orderedList') return item.children.map((child, index) => `${item.style === 'bulletList' ? '•' : `${index + 1}.`} ${plainText([child], snapshot)}`).join('\n');
+    const children = item.children.map(child => plainText([child], snapshot));
+    return children.join(item.children.some(child => child.kind === 'block') ? '\n' : '');
   }).join('');
 }
 function previewText(content: Content[], snapshot: Snapshot): string {
-  const text = content.map(item => item.kind === 'block' ? plainText(item.children, snapshot) : plainText([item], snapshot)).filter(Boolean).join(' ');
-  return text.replace(/\s+/g, ' ').trim();
+  return content.map(item => plainText([item], snapshot)).filter(Boolean).join('\n').replace(/\r\n?/g, '\n').trim();
 }
 export function toFlowNodes(data: Snapshot, matches: Set<string>, selected: Set<string>, groupColors: Record<string, string> = {}, onResizeStart?: ResizeNodeStart, onResizeEnd?: ResizeNodeEnd, resizable = true): CardNode[] {
   const byId = new Map(data.nodes.map(n => [n.id, n]));
