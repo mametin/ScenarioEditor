@@ -33,7 +33,7 @@ export function toFlowNodes(data: Snapshot, matches: Set<string>, selected: Set<
     const doc = data.documents.find(d => d.id === n.documentId);
     const preview = doc ? previewText(doc.content, data) : '';
     const previewLines = Math.min(4, Math.ceil(Array.from(preview).length / 12));
-    const ownHeight = Math.max(100, 72 + previewLines * 20 + (n.tagIds.length ? 18 : 0));
+    const ownHeight = Math.max(112, 88 + previewLines * 24 + (n.tagIds.length ? 24 : 0));
     const minimum = { width: children.length ? Math.max(260, ...children.map(c => c.position.x - n.position.x + (sizes.get(c.id)?.width ?? 260) + 32)) : 160, height: children.length ? Math.max(ownHeight, ...children.map(c => c.position.y - n.position.y + (sizes.get(c.id)?.height ?? 100) + 32)) : ownHeight };
     minimums.set(n.id, minimum);
     sizes.set(n.id, { width: Math.max(minimum.width, n.size?.width ?? 260), height: Math.max(minimum.height, n.size?.height ?? ownHeight) });

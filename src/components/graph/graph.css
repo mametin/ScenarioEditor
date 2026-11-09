@@ -31,3 +31,21 @@
 .graph-body-edit>summary{padding:4px;}
 .graph-body-edit .scenario-editor{margin-top:8px;}
 .graph-body-edit .scenario-prose{min-height:180px;padding:12px;}
+@media(min-width:801px){
+  .app.graph-mode .topbar{height:56px;min-height:56px;flex-wrap:nowrap;padding:0 18px;gap:12px;}
+  .app.graph-mode .topbar .brand{font-size:26px;}
+  .app.graph-mode .topbar .brand span{font-size:13px;}
+  .app.graph-mode .topbar .phase{font-size:10px;}
+  .app.graph-mode .topbar .view-switch button,.app.graph-mode .topbar .appearance-controls button{padding:5px 9px;font-size:12px;}
+  .app.graph-mode .graph-savebar{height:36px;min-height:36px;padding:3px 16px;gap:10px;font-size:13px;}
+  .app.graph-mode .graph-savebar button{padding:3px 9px;font-size:12px;}
+  .app.graph-mode .graph-toolbar{padding:9px 18px;}
+  .app.graph-mode .graph-toolbar strong{font-size:18px;}
+  .app.graph-mode .graph-actions button{min-height:34px;padding:5px 9px;font-size:12px;}
+  .app.graph-mode .connection-tools{padding:6px 12px;}
+  .app.graph-mode .graph-panes{height:calc(100dvh - 195px);}
+}
+.node-heading small{font-size:14px;}
+.node-heading strong{font-size:18px;}
+.node-preview{font-size:16px;line-height:1.45;}
+.node-tags{font-size:14px;}
