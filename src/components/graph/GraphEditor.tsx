@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { ReactFlow, Background, Controls, MiniMap, Handle, Position, BaseEdge, NodeResizer, NodeResizeControl, applyNodeChanges, type NodeProps, type EdgeProps, type NodeChange, type ReactFlowInstance } from '@xyflow/react';
+import { ReactFlow, Background, Controls, MiniMap, Handle, Position, BaseEdge, NodeResizeControl, applyNodeChanges, type NodeProps, type EdgeProps, type NodeChange, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import './graph.css';
 import { type ScenarioEdge, type Snapshot } from '../../domain/schema';
@@ -10,8 +10,7 @@ import ColorPicker from '../ColorPicker';
 
 function NodeCard({ id, data, selected }: NodeProps<CardNode>) {
   return <div className={`node-card ${data.children ? 'group-card' : ''} ${selected ? 'chosen' : ''} ${data.match ? '' : 'context-node'}`} style={{ '--node-color': data.color } as CSSProperties}>
-    <NodeResizer isVisible={selected && data.resizable} minWidth={data.minWidth} minHeight={data.minHeight} maxWidth={1800} maxHeight={1800} color="var(--accent)" autoScale={false} handleStyle={{ width: 8, height: 8, border: '1px solid var(--paper)', borderRadius: 2 }} onResizeStart={() => data.onResizeStart?.(id)} onResizeEnd={(_, params) => data.onResizeEnd?.(id, params)}/>
-    {(['top', 'right', 'bottom', 'left'] as const).map(position => <NodeResizeControl key={position} position={position} resizeDirection={position === 'left' || position === 'right' ? 'horizontal' : 'vertical'} minWidth={data.minWidth} minHeight={data.minHeight} maxWidth={1800} maxHeight={1800} color="var(--accent)" autoScale={false} style={{ width: 8, height: 8, border: '1px solid var(--paper)', borderRadius: 2 }} onResizeStart={() => data.onResizeStart?.(id)} onResizeEnd={(_, params) => data.onResizeEnd?.(id, params)}/>)}
+    {selected && data.resizable && resizeHandles.map(({ position, direction }) => <NodeResizeControl key={position} position={position} resizeDirection={direction} minWidth={data.minWidth} minHeight={data.minHeight} maxWidth={1800} maxHeight={1800} color="var(--accent)" autoScale={false} style={{ width: 8, height: 8, minWidth: 8, minHeight: 8, boxSizing: 'border-box', border: '1px solid var(--paper)', borderRadius: 2 }} onResizeStart={() => data.onResizeStart?.(id)} onResizeEnd={(_, params) => data.onResizeEnd?.(id, params)}/>)}
     <Handle type="target" position={Position.Left} aria-label="接続先" />
     <div className="node-heading"><small>{data.typeName}{data.children > 0 && ` · グループ ${data.children}`}</small><strong>{data.title || '無題'}</strong></div>
     {data.preview && <p className="node-preview">{data.preview}</p>}
@@ -31,6 +30,11 @@ function FlowEdge({ id, source, target, sourceX: sx, sourceY: sy, targetX: tx, t
   return <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} label={label} labelX={loop ? cx : (sx + 2*qx + tx)/4} labelY={loop ? sy - height * .75 : (sy + 2*qy + ty)/4} labelBgPadding={[6, 4]} labelBgBorderRadius={4} interactionWidth={24} />;
 }
 const nodeTypes = { scenario: NodeCard }; const edgeTypes = { scenario: FlowEdge };
+const resizeHandles = [
+  { position: 'top-left', direction: undefined }, { position: 'top', direction: 'vertical' }, { position: 'top-right', direction: undefined },
+  { position: 'right', direction: 'horizontal' }, { position: 'bottom-right', direction: undefined }, { position: 'bottom', direction: 'vertical' },
+  { position: 'bottom-left', direction: undefined }, { position: 'left', direction: 'horizontal' },
+] as const;
 
 function ResizeHandle({ side, width, onResize }: { side: 'left' | 'right'; width: number; onResize: (width: number) => void }) {
   return <div className="pane-resizer" role="separator" aria-label={side === 'left' ? '一覧の幅' : '詳細の幅'} aria-orientation="vertical" aria-valuenow={width} aria-valuemin={200} aria-valuemax={440} tabIndex={0}
