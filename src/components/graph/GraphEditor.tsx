@@ -12,9 +12,11 @@ function NodeCard({ id, data, selected }: NodeProps<CardNode>) {
   return <div className={`node-card ${data.children ? 'group-card' : ''} ${selected ? 'chosen' : ''} ${data.match ? '' : 'context-node'}`} style={{ '--node-color': data.color } as CSSProperties}>
     {selected && data.resizable && resizeHandles.map(({ position, direction }) => <NodeResizeControl key={position} position={position} resizeDirection={direction} minWidth={data.minWidth} minHeight={data.minHeight} maxWidth={1800} maxHeight={1800} color="var(--accent)" autoScale={false} style={{ width: 8, height: 8, minWidth: 8, minHeight: 8, boxSizing: 'border-box', border: '1px solid var(--paper)', borderRadius: 2 }} onResizeStart={() => data.onResizeStart?.(id)} onResizeEnd={(_, params) => data.onResizeEnd?.(id, params)}/>)}
     <Handle type="target" position={Position.Left} aria-label="接続先" />
-    <div className="node-heading"><small>{data.typeName}{data.children > 0 && ` · グループ ${data.children}`}</small><strong>{data.title || '無題'}</strong></div>
-    {data.preview && <p className="node-preview">{data.preview}</p>}
-    {data.tags.length > 0 && <div className="node-tags">{data.tags.join(' · ')}</div>}
+    <div className="node-content">
+      <div className="node-heading"><small>{data.typeName}{data.children > 0 && ` · グループ ${data.children}`}</small><strong>{data.title || '無題'}</strong></div>
+      {data.preview && <p className="node-preview">{data.preview}</p>}
+      {data.tags.length > 0 && <div className="node-tags">{data.tags.join(' · ')}</div>}
+    </div>
     <Handle type="source" position={Position.Right} aria-label="接続元" />
   </div>;
 }

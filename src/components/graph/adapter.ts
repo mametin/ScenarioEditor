@@ -32,9 +32,9 @@ export function toFlowNodes(data: Snapshot, matches: Set<string>, selected: Set<
     const children = data.nodes.filter(c => c.parentGroupId === n.id);
     const doc = data.documents.find(d => d.id === n.documentId);
     const preview = doc ? previewText(doc.content, data) : '';
-    const previewLines = Math.min(4, Math.ceil(Array.from(preview).length / 28));
+    const previewLines = Math.min(4, Math.ceil(Array.from(preview).length / 12));
     const ownHeight = Math.max(100, 72 + previewLines * 20 + (n.tagIds.length ? 18 : 0));
-    const minimum = { width: children.length ? Math.max(260, ...children.map(c => c.position.x - n.position.x + (sizes.get(c.id)?.width ?? 260) + 32)) : 160, height: children.length ? Math.max(100, ...children.map(c => c.position.y - n.position.y + (sizes.get(c.id)?.height ?? 100) + 32)) : 80 };
+    const minimum = { width: children.length ? Math.max(260, ...children.map(c => c.position.x - n.position.x + (sizes.get(c.id)?.width ?? 260) + 32)) : 160, height: children.length ? Math.max(ownHeight, ...children.map(c => c.position.y - n.position.y + (sizes.get(c.id)?.height ?? 100) + 32)) : ownHeight };
     minimums.set(n.id, minimum);
     sizes.set(n.id, { width: Math.max(minimum.width, n.size?.width ?? 260), height: Math.max(minimum.height, n.size?.height ?? ownHeight) });
   }
@@ -43,7 +43,7 @@ export function toFlowNodes(data: Snapshot, matches: Set<string>, selected: Set<
     const type = data.nodeTypes.find(t => t.id === n.typeId)!;
     const children = data.nodes.filter(c => c.parentGroupId === n.id).length;
     const doc = data.documents.find(d => d.id === n.documentId);
-    return { id: n.id, type: 'scenario', position: parent ? { x: n.position.x - parent.position.x, y: n.position.y - parent.position.y } : { ...n.position }, parentId: parent?.id, selected: selected.has(n.id), hidden: !included.has(n.id), dragHandle: '.node-heading', style: sizes.get(n.id), data: { title: n.title, preview: doc ? previewText(doc.content, data) : '', typeName: type.name, color: children > 0 ? groupColors[n.id] ?? type.color : type.color, tags: n.tagIds.map(id => data.tags.find(t => t.id === id)?.name ?? ''), children, match: matches.has(n.id), minWidth: minimums.get(n.id)!.width, minHeight: minimums.get(n.id)!.height, resizable, onResizeStart, onResizeEnd } };
+    return { id: n.id, type: 'scenario', position: parent ? { x: n.position.x - parent.position.x, y: n.position.y - parent.position.y } : { ...n.position }, parentId: parent?.id, selected: selected.has(n.id), hidden: !included.has(n.id), style: sizes.get(n.id), data: { title: n.title, preview: doc ? previewText(doc.content, data) : '', typeName: type.name, color: children > 0 ? groupColors[n.id] ?? type.color : type.color, tags: n.tagIds.map(id => data.tags.find(t => t.id === id)?.name ?? ''), children, match: matches.has(n.id), minWidth: minimums.get(n.id)!.width, minHeight: minimums.get(n.id)!.height, resizable, onResizeStart, onResizeEnd } };
   });
 }
 export function toFlowEdges(data: Snapshot, matches: Set<string>, kinds: Set<string>, selectedId?: string): ScenarioFlowEdge[] {
