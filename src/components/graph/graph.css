@@ -45,7 +45,16 @@
   .app.graph-mode .connection-tools{padding:6px 12px;}
   .app.graph-mode .graph-panes{height:calc(100dvh - 195px);}
 }
-.node-heading small{font-size:14px;}
-.node-heading strong{font-size:18px;}
-.node-preview{font-size:16px;line-height:1.45;}
-.node-tags{font-size:14px;}
+.node-heading small{font-size:16px;}
+.node-heading strong{font-size:20px;}
+.node-preview{font-size:18px;line-height:1.35;}
+.node-tags{font-size:16px;}
+.node-list-title span{font-size:16px;}
+.node-list-title small{font-size:14px;}
+.canvas-caption{font-size:14px;}
+.graph-interaction-switch{display:flex;align-items:center;gap:4px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--surface-soft);}
+.graph-interaction-switch button{padding:4px 8px;white-space:nowrap;font-size:13px;}
+.graph-interaction-switch button[aria-pressed="true"]{background:var(--surface-active);border-color:var(--accent);color:var(--ink);}
+.is-pan-mode .flow-canvas .react-flow__node,.is-pan-mode .flow-canvas .react-flow__edge{pointer-events:none!important;}
+.is-pan-mode .flow-canvas .react-flow__pane{cursor:grab;}
+.is-pan-mode .flow-canvas .react-flow__pane:active{cursor:grabbing;}
