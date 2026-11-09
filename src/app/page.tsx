@@ -16,6 +16,7 @@ const TagManager = dynamic(() => import('../components/types/TagManager'), { ssr
 const OutlineWorkspace = dynamic(() => import('../components/OutlineWorkspace'), { ssr: false });
 
 const labels = { saved: 'ローカル保存済み', pending: '未保存の変更あり', saving: '保存中…', error: '保存できませんでした' };
+function darkenHex(hex: string, amount: number) { return `#${[1, 3, 5].map(index => Math.round(parseInt(hex.slice(index, index + 2), 16) * (1 - amount)).toString(16).padStart(2, '0')).join('')}`; }
 export default function Home() {
   const [projects, setProjects] = useState<Stored[]>([]);
   const [active, setActive] = useState<Snapshot>();
@@ -32,6 +33,7 @@ export default function Home() {
   const [editorSession, setEditorSession] = useState(0);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [themeColor, setThemeColor] = useState('#476955');
+  const [backgroundColor, setBackgroundColor] = useState('#f5f4ef');
   const [themeReady, setThemeReady] = useState(false);
   const repo = useRef<ProjectRepository | undefined>(undefined);
   const saver = useRef<Autosave | undefined>(undefined);
@@ -40,26 +42,35 @@ export default function Home() {
   useEffect(() => {
     let initial: 'light' | 'dark' = 'light';
     let color = '#476955';
+    let background = '#f5f4ef';
     try {
       if (localStorage.getItem('scenario-editor-theme') === 'dark') initial = 'dark';
       const savedColor = localStorage.getItem('scenario-editor-theme-color');
       if (savedColor && /^#[0-9a-f]{6}$/i.test(savedColor)) color = savedColor;
+      const savedBackground = localStorage.getItem('scenario-editor-background-color');
+      if (savedBackground && /^#[0-9a-f]{6}$/i.test(savedBackground)) background = savedBackground;
     } catch { /* Appearance is a preference; the app remains usable when storage is blocked. */ }
     document.documentElement.dataset.theme = initial;
     document.documentElement.style.setProperty('--accent', color);
-    setTheme(initial); setThemeColor(color); setThemeReady(true);
+    document.documentElement.style.setProperty('--theme-background', background);
+    setTheme(initial); setThemeColor(color); setBackgroundColor(background); setThemeReady(true);
   }, []);
   useEffect(() => {
     if (!themeReady) return;
     document.documentElement.dataset.theme = theme;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#151a17' : '#f5f4ef');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? darkenHex(backgroundColor, .88) : backgroundColor);
     try { localStorage.setItem('scenario-editor-theme', theme); } catch { /* Keep the current-session choice even if it cannot be persisted. */ }
-  }, [theme, themeReady]);
+  }, [theme, themeReady, backgroundColor]);
   useEffect(() => {
     if (!themeReady) return;
     document.documentElement.style.setProperty('--accent', themeColor);
     try { localStorage.setItem('scenario-editor-theme-color', themeColor); } catch { /* Keep the current-session choice even if it cannot be persisted. */ }
   }, [themeColor, themeReady]);
+  useEffect(() => {
+    if (!themeReady) return;
+    document.documentElement.style.setProperty('--theme-background', backgroundColor);
+    try { localStorage.setItem('scenario-editor-background-color', backgroundColor); } catch { /* Keep the current-session choice even if it cannot be persisted. */ }
+  }, [backgroundColor, themeReady]);
   function select(row: Stored) {
     setEditorSession(value => value + 1);
     current.current = row.snapshot; setActive(row.snapshot); setHistory([]); setError(''); setStatus('saved');
@@ -108,7 +119,7 @@ export default function Home() {
     return null;
   }
   return <div className={view === 'graph' ? 'app graph-mode' : focus ? 'app focus' : 'app'}>
-    <header className="topbar"><a className="brand" href="/">◈ <span>SCENARIO <b>EDITOR</b></span></a><span className="phase">PHASE 04 / アウトライン・出力</span><div className="view-switch"><button aria-pressed={view === 'overview'} onClick={() => setView('overview')}>概要・保存</button><button disabled={!active} aria-pressed={view === 'graph'} onClick={() => setView('graph')}>グラフ</button>{([["writing","執筆"],["entities","設定資料"],["types","タイプ"],["tags","タグ"],["outline","アウトライン・出力"]] as const).map(([id,label]) => <button key={id} disabled={!active} aria-pressed={view === id} onClick={() => setView(id)}>{label}</button>)}</div><div className="appearance-controls">{view === 'overview' && <button className="focus-toggle" onClick={() => setFocus(!focus)}>{focus ? '通常表示に戻る' : '集中表示'}</button>}<details className="appearance-settings"><summary>テーマ色</summary><ColorPicker label="サイトのテーマカラー" value={themeColor} onChange={setThemeColor}/></details><button className="theme-toggle" aria-label={theme === 'dark' ? 'ライトモードに切り替え' : 'ダークモードに切り替え'} aria-pressed={theme === 'dark'} onClick={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? '☀ ライト' : '☾ ダーク'}</button></div></header>
+    <header className="topbar"><a className="brand" href="/">◈ <span>SCENARIO <b>EDITOR</b></span></a><span className="phase">PHASE 04 / アウトライン・出力</span><div className="view-switch"><button aria-pressed={view === 'overview'} onClick={() => setView('overview')}>概要・保存</button><button disabled={!active} aria-pressed={view === 'graph'} onClick={() => setView('graph')}>グラフ</button>{([["writing","執筆"],["entities","設定資料"],["types","タイプ"],["tags","タグ"],["outline","アウトライン・出力"]] as const).map(([id,label]) => <button key={id} disabled={!active} aria-pressed={view === id} onClick={() => setView(id)}>{label}</button>)}</div><div className="appearance-controls">{view === 'overview' && <button className="focus-toggle" onClick={() => setFocus(!focus)}>{focus ? '通常表示に戻る' : '集中表示'}</button>}<details className="appearance-settings"><summary>外観</summary><div className="appearance-picker-list"><ColorPicker label="テーマカラー" value={themeColor} onChange={setThemeColor}/><ColorPicker label="背景色" value={backgroundColor} onChange={setBackgroundColor}/></div></details><button className="theme-toggle" aria-label={theme === 'dark' ? 'ライトモードに切り替え' : 'ダークモードに切り替え'} aria-pressed={theme === 'dark'} onClick={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? '☀ ライト' : '☾ ダーク'}</button></div></header>
     <div className="workspace" hidden={view !== 'overview'} style={view !== 'overview' ? { display: 'none' } : undefined}>
       <aside className="sidebar"><div className="eyebrow">YOUR WORKSPACE</div><h2>シナリオ</h2><button className="primary wide" disabled={!ready || busy} onClick={() => void run(async () => { await settle(); const row = await repo.current!.save(createProject(), 0); await refresh(); select(row); })}>＋ 新規プロジェクト</button>
         <nav aria-label="プロジェクト一覧">{projects.map(row => <button className={row.id === active?.project.id ? 'project selected' : 'project'} key={row.id} disabled={busy} onClick={() => void run(async () => { await settle(); const latest = await repo.current!.load(row.id); if (latest) select(latest); await refresh(); })}><span>▤</span><span>{row.id === active?.project.id ? active.project.title || '無題' : row.snapshot.project.title || '無題'}<small>{new Date(row.savedAt).toLocaleDateString('ja-JP')}</small></span></button>)}</nav>
