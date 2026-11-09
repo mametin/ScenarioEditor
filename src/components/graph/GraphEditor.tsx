@@ -13,7 +13,7 @@ function NodeCard({ id, data, selected }: NodeProps<CardNode>) {
     {selected && data.resizable && resizeHandles.map(({ position, direction }) => <NodeResizeControl key={position} position={position} resizeDirection={direction} minWidth={data.minWidth} minHeight={data.minHeight} maxWidth={1800} maxHeight={1800} color="var(--accent)" autoScale={false} style={{ width: 8, height: 8, minWidth: 8, minHeight: 8, boxSizing: 'border-box', border: '1px solid var(--paper)', borderRadius: 2 }} onResizeStart={() => data.onResizeStart?.(id)} onResizeEnd={(_, params) => data.onResizeEnd?.(id, params)}/>)}
     <Handle type="target" position={Position.Left} aria-label="接続先" />
     <div className="node-content">
-      <div className="node-heading"><small>{data.typeName}{data.children > 0 && ` · グループ ${data.children}`}</small><strong>{data.title || '無題'}</strong></div>
+      <div className="node-heading"><small>{data.typeName}</small><strong>{data.title || '無題'}</strong></div>
       {data.preview && <p className="node-preview">{data.preview}</p>}
       {data.tags.length > 0 && <div className="node-tags">{data.tags.join(' · ')}</div>}
     </div>
@@ -183,7 +183,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, disabled 
           {childCount > 0 ? <button type="button" className="tree-toggle" aria-label={`${item.title || '無題'}の子ノードを${collapsed ? '展開' : '折りたたむ'}`} aria-expanded={!collapsed} onClick={() => setCollapsedGroups(old => { const next = new Set(old); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; })}>{collapsed ? '▸' : '▾'}</button> : <span className="tree-toggle-spacer"/>}
           <input type="checkbox" aria-label={`${item.title || '無題'}を選択`} checked={selected.has(item.id)} onChange={event => { setEdgeId(undefined); setSelected(old => { const next = new Set(old); if (event.target.checked) next.add(item.id); else next.delete(item.id); return next; }); }}/>
           <button type="button" className="node-drag-grip" draggable={!disabled} aria-label={`${item.title || '無題'}を並べ替え`} title="ドラッグして同じ階層内で並べ替え" onClick={event => event.stopPropagation()} onDragStart={event => { if (disabled) { event.preventDefault(); return; } event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', item.id); setDraggedNodeId(item.id); setDropTarget(null); }} onDragEnd={() => { setDropTarget(null); setDraggedNodeId(undefined); }}>⠿</button>
-          <button className="node-list-title" onClick={() => selectNode(item.id)}><span>{item.title || '無題'}</span><small>{snapshot.nodeTypes.find(type => type.id === item.typeId)?.name}{childCount > 0 && ` · グループ ${childCount}`}</small></button>
+          <button className="node-list-title" onClick={() => selectNode(item.id)}><span>{item.title || '無題'}</span><small>{snapshot.nodeTypes.find(type => type.id === item.typeId)?.name}</small></button>
         </div>
       </div>
       {!collapsed && visibleChildren.map(child => renderTreeItem(child, depth + 1))}
