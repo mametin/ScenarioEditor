@@ -31,7 +31,9 @@ export const FieldValueSchema = z.discriminatedUnion('kind', [
 const fields = z.record(id, FieldValueSchema);
 export const FieldDefinitionSchema = z.strictObject({ id, name: z.string(), kind: z.enum(['text','richText','number','boolean','singleSelect','multiSelect','date','entityReference','nodeReference']), hidden: z.boolean(), options: z.array(z.strictObject({ id, name: z.string() })) });
 export const NodeTypeDefinitionSchema = z.strictObject({ id, name: z.string(), icon: z.string(), color: z.string(), fields: z.array(FieldDefinitionSchema) });
-export const ScenarioNodeSchema = z.strictObject({ ...base, typeId: id, title: z.string(), documentId: id, fields, tagIds: z.array(id), position: z.strictObject({ x: z.number().finite(), y: z.number().finite() }), parentGroupId: id.nullable() });
+const nodeCore = { ...base, typeId: id, title: z.string(), documentId: id, fields, tagIds: z.array(id), position: z.strictObject({ x: z.number().finite(), y: z.number().finite() }), parentGroupId: id.nullable() };
+export const ScenarioNodeV1Schema = z.strictObject(nodeCore);
+export const ScenarioNodeSchema = z.strictObject({ ...nodeCore, size: z.strictObject({ width: z.number().finite().min(160).max(2500), height: z.number().finite().min(80).max(2500) }).optional() });
 export const ScenarioEdgeSchema = z.strictObject({ id, sourceId: id, targetId: id, kind: z.enum(['progression','conditional','reference','dependency']), label: z.string(), condition: z.string() });
 export const EntityAliasSchema = z.strictObject({ id, name: z.string() });
 export const ScenarioEntitySchema = z.strictObject({ ...base, category: z.string(), name: z.string(), aliases: z.array(EntityAliasSchema), descriptionDocumentId: id, fields, tagIds: z.array(id) });
@@ -39,7 +41,9 @@ export const TagSchema = z.strictObject({ id, name: z.string(), color: z.string(
 export const OutlineItemSchema = z.strictObject({ id, parentId: id.nullable(), title: z.string(), nodeId: id.nullable(), order: z.number().int().nonnegative() });
 export const SyncMetadataSchema = z.strictObject({ projectId: id, status: z.enum(['notConfigured','pending','syncing','synced','conflict','error']), lastSyncedRevision: z.number().int().nonnegative().nullable(), baseCommitSha: z.string().nullable(), lastSyncedAt: date.nullable() });
 export const ProjectSchema = z.strictObject({ ...base, title: z.string(), description: z.string() });
-export const SnapshotSchema = z.strictObject({ schemaVersion: z.literal(1), project: ProjectSchema, nodes: z.array(ScenarioNodeSchema), documents: z.array(DocumentSchema), edges: z.array(ScenarioEdgeSchema), nodeTypes: z.array(NodeTypeDefinitionSchema), entities: z.array(ScenarioEntitySchema), tags: z.array(TagSchema), outline: z.array(OutlineItemSchema), sync: SyncMetadataSchema });
+const snapshotCore = { project: ProjectSchema, documents: z.array(DocumentSchema), edges: z.array(ScenarioEdgeSchema), nodeTypes: z.array(NodeTypeDefinitionSchema), entities: z.array(ScenarioEntitySchema), tags: z.array(TagSchema), outline: z.array(OutlineItemSchema), sync: SyncMetadataSchema };
+const SnapshotV1Schema = z.strictObject({ schemaVersion: z.literal(1), ...snapshotCore, nodes: z.array(ScenarioNodeV1Schema) });
+export const SnapshotSchema = z.strictObject({ schemaVersion: z.literal(2), ...snapshotCore, nodes: z.array(ScenarioNodeSchema) });
 export type Project = z.infer<typeof ProjectSchema>;
 export type ScenarioNode = z.infer<typeof ScenarioNodeSchema>;
 export type ScenarioEdge = z.infer<typeof ScenarioEdgeSchema>;
@@ -52,9 +56,17 @@ export type OutlineItem = z.infer<typeof OutlineItemSchema>;
 export type SyncMetadata = z.infer<typeof SyncMetadataSchema>;
 export type Snapshot = z.infer<typeof SnapshotSchema>;
 
-/** Reject unsupported versions and unknown fields; never silently strip newer data. */
+/** Additive v1 -> v2 migration: preserve all records and IDs; node sizes remain unset until edited. */
+export function migrateSnapshotV1ToV2(raw: unknown) {
+  const version1 = SnapshotV1Schema.parse(raw);
+  return { ...version1, schemaVersion: 2 as const };
+}
+
+/** Reject unsupported versions and unknown fields; only the additive v1 -> v2 migration is accepted. */
 export function parseSnapshot(raw: unknown): Snapshot {
-  const data = SnapshotSchema.parse(raw);
+  const version = raw && typeof raw === 'object' && 'schemaVersion' in raw ? raw.schemaVersion : undefined;
+  const migrated = version === 1 ? migrateSnapshotV1ToV2(raw) : raw;
+  const data = SnapshotSchema.parse(migrated);
   const allIds = [data.project.id, ...[data.nodes,data.documents,data.edges,data.nodeTypes,data.entities,data.tags,data.outline].flatMap(xs => xs.map(x => x.id)), ...data.entities.flatMap(e => e.aliases.map(a => a.id)), ...data.nodeTypes.flatMap(t => t.fields.flatMap(f => [f.id, ...f.options.map(o => o.id)]))];
   if (new Set(allIds).size !== allIds.length) throw new Error('IDが重複しています');
   if (data.sync.projectId !== data.project.id) throw new Error('同期情報のプロジェクトIDが一致しません');

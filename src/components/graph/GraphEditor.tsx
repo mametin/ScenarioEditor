@@ -1,15 +1,16 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { ReactFlow, Background, Controls, MiniMap, Handle, Position, BaseEdge, applyNodeChanges, type NodeProps, type EdgeProps, type NodeChange, type ReactFlowInstance } from '@xyflow/react';
+import { ReactFlow, Background, Controls, MiniMap, Handle, Position, BaseEdge, NodeResizer, applyNodeChanges, type NodeProps, type EdgeProps, type NodeChange, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import './graph.css';
 import { type ScenarioEdge, type Snapshot } from '../../domain/schema';
-import { addNodesToGroup, changeGraph, connect, createNode, deleteNodes, duplicateNode, edgeKinds, filterNodes, GraphHistory, groupNodes, moveNodes, ungroup, updateNode } from '../../domain/graph';
-import { toFlowEdges, toFlowNodes, type CardNode, type ScenarioFlowEdge } from './adapter';
+import { addNodesToGroup, changeGraph, connect, createNode, deleteNodes, duplicateNode, edgeKinds, filterNodes, GraphHistory, groupNodes, moveNodes, resizeNode, ungroup, updateNode } from '../../domain/graph';
+import { toFlowEdges, toFlowNodes, type CardNode, type ResizeNodeEnd, type ResizeNodeStart, type ScenarioFlowEdge } from './adapter';
 import ColorPicker from '../ColorPicker';
 
-function NodeCard({ data, selected }: NodeProps<CardNode>) {
+function NodeCard({ id, data, selected }: NodeProps<CardNode>) {
   return <div className={`node-card ${data.children ? 'group-card' : ''} ${selected ? 'chosen' : ''} ${data.match ? '' : 'context-node'}`} style={{ '--node-color': data.color } as CSSProperties}>
+    <NodeResizer isVisible={selected && data.resizable} minWidth={data.minWidth} minHeight={data.minHeight} maxWidth={1800} maxHeight={1800} color="var(--accent)" handleStyle={{ width: 12, height: 12, border: '2px solid var(--paper)', borderRadius: 3 }} onResizeStart={() => data.onResizeStart?.(id)} onResizeEnd={(_, params) => data.onResizeEnd?.(id, params)}/>
     <Handle type="target" position={Position.Left} aria-label="接続先" />
     <div className="node-heading"><small>{data.typeName}{data.children > 0 && ` · グループ ${data.children}`}</small><strong>{data.title || '無題'}</strong></div>
     {data.preview && <p className="node-preview">{data.preview}</p>}
@@ -55,6 +56,9 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, disabled 
   const matches = useMemo(() => filterNodes(snapshot, query, typeFilter, tagFilter, tagMode), [snapshot, query, typeFilter, tagFilter, tagMode]);
   const [nodes, setNodes] = useState<CardNode[]>(() => toFlowNodes(snapshot, matches, selected));
   const nodesRef = useRef(nodes); nodesRef.current = nodes;
+  const resizing = useRef(false);
+  const resizeStart = useRef<ResizeNodeStart>(() => {});
+  const resizeEnd = useRef<ResizeNodeEnd>(() => {});
   const edges = useMemo(() => toFlowEdges(snapshot, matches, kinds, edgeId), [snapshot, matches, kinds, edgeId]);
   useEffect(() => {
     try {
@@ -63,7 +67,9 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, disabled 
       setGroupColors(valid);
     } catch { setGroupColors({}); }
   }, [groupColorKey]);
-  useEffect(() => { if (!dragging.current) setNodes(toFlowNodes(snapshot, matches, selected, groupColors)); }, [snapshot, matches, selected, groupColors]);
+  const handleResizeStart = useCallback<ResizeNodeStart>(id => resizeStart.current(id), []);
+  const handleResizeEnd = useCallback<ResizeNodeEnd>((id, params) => resizeEnd.current(id, params), []);
+  useEffect(() => { if (!dragging.current) setNodes(toFlowNodes(snapshot, matches, selected, groupColors, handleResizeStart, handleResizeEnd, !disabled)); }, [snapshot, matches, selected, groupColors, handleResizeStart, handleResizeEnd, disabled]);
   const node = snapshot.nodes.find(n => selected.has(n.id));
   const edge = snapshot.edges.find(e => e.id === edgeId);
   const selectedGroups = snapshot.nodes.filter(item => selected.has(item.id) && snapshot.nodes.some(child => child.parentGroupId === item.id));
@@ -84,6 +90,15 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, disabled 
     if (disabled) return;
     try { const before = latest.current; const next = changeGraph(before, change); history.current.record(before); latest.current = next; onChange(next); setError(''); } catch (e) { setError(e instanceof Error ? e.message : '変更できませんでした'); }
   }
+  resizeEnd.current = (id, params) => {
+    resizing.current = false;
+    const target = latest.current.nodes.find(item => item.id === id);
+    if (!target) return;
+    const parent = target.parentGroupId ? latest.current.nodes.find(item => item.id === target.parentGroupId) : undefined;
+    const position = { x: params.x + (parent?.position.x ?? 0), y: params.y + (parent?.position.y ?? 0) };
+    commit(draft => resizeNode(draft, id, position, { width: params.width, height: params.height }));
+  };
+  resizeStart.current = () => { resizing.current = true; };
   function travel(direction: 'undo' | 'redo') {
     if (disabled) return;
     const next = history.current[direction](latest.current);
@@ -146,7 +161,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, disabled 
         <div className="connection-tools"><label>新規接続<select aria-label="新規接続の種類" value={kind} disabled={disabled} onChange={e => setKind(e.target.value as ScenarioEdge['kind'])}>{Object.entries(edgeKinds).map(([id,label]) => <option value={id} key={id}>{label}</option>)}</select></label><button disabled={disabled} aria-pressed={connecting} onClick={() => { setConnecting(!connecting); setSourceId(undefined); }}>{connecting ? '接続モードを終了' : '接続モードを開始'}</button><span role="status">{connecting ? sourceId ? '接続先を選ぶか、接続点をドラッグ' : '接続元を選ぶか、接続点をドラッグ' : '接続モードを開始すると接続点が表示されます'}</span></div>
         <div className="flow-canvas" aria-label="シナリオグラフ">
           <ReactFlow<CardNode, ScenarioFlowEdge> nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onInit={instance => { flow.current = instance; }} fitView minZoom={0.15} maxZoom={2} deleteKeyCode={null} nodesDraggable={!disabled} nodesConnectable={!disabled} connectOnClick selectionOnDrag selectionKeyCode="Shift" multiSelectionKeyCode={['Control','Meta']} onSelectionChange={onSelectionChange}
-            onNodesChange={changes => { setNodes(old => { const next = applyNodeChanges(changes, old); nodesRef.current = next; return next; }); if (changes.some(c => c.type === 'position' && c.position && c.dragging === undefined) && !dragging.current) finishMove(changes); }}
+            onNodesChange={changes => { setNodes(old => { const next = applyNodeChanges(changes, old); nodesRef.current = next; return next; }); if (changes.some(c => c.type === 'position' && c.position && c.dragging === undefined) && !dragging.current && !resizing.current) finishMove(changes); }}
             onNodeDragStart={() => { dragging.current = true; }} onNodeDragStop={(_, moved, movedNodes) => finishMove((movedNodes.length ? movedNodes : [moved]).map(n => ({ type: 'position' as const, id: n.id, position: n.position })))}
             onNodeClick={(_, n) => { if (connecting) selectNode(n.id); else { setEdgeId(undefined); if (!selected.has(n.id)) setSelected(new Set([n.id])); } }}
             onEdgeClick={(_, e) => { setEdgeId(e.id); setSelected(new Set()); }}
@@ -160,7 +175,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, disabled 
       </div>
       {right && <ResizeHandle side="right" width={rightWidth} onResize={setRightWidth}/>}
       <aside className={`graph-inspector ${right ? '' : 'pane-collapsed'}`}><div className="eyebrow">INSPECTOR</div>
-        {edge ? <><h2>接続を編集</h2><label>接続元<select value={edge.sourceId} disabled={disabled} onChange={e => patchEdge({ sourceId: e.target.value })}>{snapshot.nodes.map(n => <option key={n.id} value={n.id}>{n.title || '無題'}</option>)}</select></label><label>接続先<select value={edge.targetId} disabled={disabled} onChange={e => patchEdge({ targetId: e.target.value })}>{snapshot.nodes.map(n => <option key={n.id} value={n.id}>{n.title || '無題'}</option>)}</select></label><label>種類<select value={edge.kind} disabled={disabled} onChange={e => patchEdge({ kind: e.target.value as ScenarioEdge['kind'] })}>{Object.entries(edgeKinds).map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></label><label>ラベル<input value={edge.label} disabled={disabled} onChange={e => patchEdge({ label: e.target.value })}/></label><label>条件テキスト<textarea value={edge.condition} disabled={disabled} onChange={e => patchEdge({ condition: e.target.value })}/></label><p className="muted">条件の自動評価は行いません。</p><button className="danger wide" disabled={disabled} onClick={removeSelection}>接続を削除</button></> : node ? <><h2>ノードを編集</h2>{selected.size > 1 && <p>{selected.size}件選択中 · 項目編集は先頭のノード</p>}<label>ノードタイトル<input value={node.title} disabled={disabled} onChange={e => commit(d => updateNode(d, node.id, { title: e.target.value }))}/></label><label>ノードタイプ<select value={node.typeId} disabled={disabled} onChange={e => commit(d => updateNode(d, node.id, { typeId: e.target.value }))}>{snapshot.nodeTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
+        {edge ? <><h2>接続を編集</h2><label>接続元<select value={edge.sourceId} disabled={disabled} onChange={e => patchEdge({ sourceId: e.target.value })}>{snapshot.nodes.map(n => <option key={n.id} value={n.id}>{n.title || '無題'}</option>)}</select></label><label>接続先<select value={edge.targetId} disabled={disabled} onChange={e => patchEdge({ targetId: e.target.value })}>{snapshot.nodes.map(n => <option key={n.id} value={n.id}>{n.title || '無題'}</option>)}</select></label><label>種類<select value={edge.kind} disabled={disabled} onChange={e => patchEdge({ kind: e.target.value as ScenarioEdge['kind'] })}>{Object.entries(edgeKinds).map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></label><label>ラベル<input value={edge.label} disabled={disabled} onChange={e => patchEdge({ label: e.target.value })}/></label><label>条件テキスト<textarea value={edge.condition} disabled={disabled} onChange={e => patchEdge({ condition: e.target.value })}/></label><p className="muted">条件の自動評価は行いません。</p><button className="danger wide" disabled={disabled} onClick={removeSelection}>接続を削除</button></> : node ? <><h2>ノードを編集</h2><p className="muted">選択中のノードは、四隅または辺の中央をドラッグしてサイズを変更できます。</p>{selected.size > 1 && <p>{selected.size}件選択中 · 項目編集は先頭のノード</p>}<label>ノードタイトル<input value={node.title} disabled={disabled} onChange={e => commit(d => updateNode(d, node.id, { title: e.target.value }))}/></label><label>ノードタイプ<select value={node.typeId} disabled={disabled} onChange={e => commit(d => updateNode(d, node.id, { typeId: e.target.value }))}>{snapshot.nodeTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
           {snapshot.nodes.some(item => item.parentGroupId === node.id) && <div className="group-color-setting"><ColorPicker label="グループ色" value={groupColors[node.id] ?? snapshot.nodeTypes.find(t => t.id === node.typeId)?.color ?? '#657e6d'} onChange={color => setGroupColor(node.id, color)}/><p className="muted">この色はプロジェクトごとにこのブラウザへ保存されます。</p><button type="button" onClick={() => setGroupColor(node.id)}>タイプ色に戻す</button></div>}
           <fieldset><legend>タグ</legend>{snapshot.tags.map(t => <label className="check" key={t.id}><input type="checkbox" checked={node.tagIds.includes(t.id)} disabled={disabled} onChange={e => commit(d => updateNode(d, node.id, { tagIds: e.target.checked ? [...node.tagIds,t.id] : node.tagIds.filter(id => id !== t.id) }))}/>{t.name}</label>)}<div className="new-tag"><input aria-label="新しいタグ名" value={newTag} onChange={e => setNewTag(e.target.value)} placeholder="タグ名"/><button disabled={!newTag.trim() || disabled} onClick={() => { commit(d => { const tag = d.tags.find(t => t.name === newTag.trim()) ?? { id: crypto.randomUUID(), name: newTag.trim(), color: '#657e6d' }; if (!d.tags.some(t => t.id === tag.id)) d.tags.push(tag); const n = d.nodes.find(n => n.id === node.id)!; if (!n.tagIds.includes(tag.id)) n.tagIds.push(tag.id); }); setNewTag(''); }}>追加</button></div></fieldset>
           <div className="coordinate-fields">{(['x','y'] as const).map(axis => <label key={axis}>{axis.toUpperCase()}<input type="number" aria-label={`${axis.toUpperCase()}座標`} value={Math.round(node.position[axis] * 100)/100} disabled={disabled} onChange={e => { const value = e.target.valueAsNumber; if (Number.isFinite(value)) commit(d => moveNodes(d, new Map([[node.id, { ...node.position, [axis]: value }]]))); }}/></label>)}</div>

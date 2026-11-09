@@ -37,6 +37,13 @@ export function moveNodes(draft: Snapshot, positions: Map<string, Point>) {
     if (position) { node.position = position; node.updatedAt = new Date().toISOString(); }
   }
 }
+export function resizeNode(draft: Snapshot, id: string, position: Point, size: { width: number; height: number }) {
+  const node = draft.nodes.find(n => n.id === id);
+  if (!node) throw new Error('ノードが見つかりません');
+  node.position = { ...position };
+  node.size = { width: size.width, height: size.height };
+  node.updatedAt = new Date().toISOString();
+}
 export function duplicateNode(draft: Snapshot, id: string): string {
   const source = draft.nodes.find(n => n.id === id); if (!source) throw new Error('ノードが見つかりません');
   const now = new Date().toISOString(); const copy = structuredClone(source); copy.id = crypto.randomUUID(); copy.title += '（コピー）'; copy.position = { x: copy.position.x + 36, y: copy.position.y + 36 }; copy.createdAt = now; copy.updatedAt = now;

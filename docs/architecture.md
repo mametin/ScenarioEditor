@@ -12,7 +12,7 @@ UI → ドメイン操作／自動保存 → Repository → IndexedDB。
 
 ドメインにReact・Dexie・React Flow・Tiptapを持ち込まない。Repositoryと自動保存はUIに依存しない。Phase 1はReactの状態管理だけで足りるためZustandは未導入。CSSも小規模なためTailwind/shadcnは未導入。後続フェーズで必要性を再評価する。
 
-## 保存モデル v1
+## 保存モデル v2
 
 Project、ScenarioNode、ScenarioEdge、NodeTypeDefinition、FieldDefinition、ScenarioEntity、EntityAlias、Tag、OutlineItem、SyncMetadataをそれぞれ独立したZodスキーマと推論型として定義。加えてDocumentを定義し、本文をノードへ埋め込まずdocumentIdで関連付ける。構造化本文のルートはContent[]。
 
@@ -26,7 +26,7 @@ Project、ScenarioNode、ScenarioEdge、NodeTypeDefinition、FieldDefinition、S
 - 削除された本文・カスタムフィールド内のノード／エンティティ参照は将来の警告対象として保持する。一方、エッジ・アウトライン・本文所有者の構造参照切れは保存時に拒否する。全使用箇所の走査・UI警告はPhase 3で追加する。
 - 初期ノードタイプは本文・イベント・情報・設定資料。エンティティカテゴリは拡張可能な文字列とし、NPC・場所・用語・アイテムの選択UIはPhase 3で実装する。
 
-全スナップショットにschemaVersion:1を持たせる。strictObjectにより未知項目を黙って削除しない。未知版・不正データは書き込み前に拒否し、原本を保持する。読めないプロジェクトがある場合は初期化で上書きせずエラー表示して停止する（個別隔離・生データ救出UIは追加課題）。
+全スナップショットにschemaVersionを持たせる。strictObjectにより未知項目を黙って削除しない。未知版・不正データは書き込み前に拒否し、原本を保持する。読めないプロジェクトがある場合は初期化で上書きせずエラー表示して停止する（個別隔離・生データ救出UIは追加課題）。v2ではノード寸法を任意のwidth/heightとして保存する。
 
 ## 保存・復元と競合
 
@@ -46,7 +46,7 @@ JSON取り込みは検証後、別Project IDで新規保存。同期メタデー
 
 ## マイグレーション方針
 
-現在の保存形式はv1のみで既存版からの移行は存在しない。未検証の自動移行は行わない。v2導入時は純粋なv1→v2変換関数、原本バックアップ、移行後検証、参照保持・復元テストを必須とし、明示的な移行操作で新コピーへ保存する。IndexedDBストア版とJSONのschemaVersionは別管理。
+v1→v2移行はノード寸法の任意項目を追加するだけの加算的変換とする。レコード、ID、本文、参照を変更・削除せず、既存プロジェクトは最初に保存される際に旧スナップショットを履歴へ保管してからv2として保存する。JSONの読み込みも同じ検証済み変換を通す。IndexedDBストア版とJSONのschemaVersionは別管理。
 
 ## 外観設定
 
