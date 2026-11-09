@@ -17,9 +17,7 @@ function plainText(content: Content[], snapshot: Snapshot): string {
 }
 function previewText(content: Content[], snapshot: Snapshot): string {
   const text = content.map(item => item.kind === 'block' ? plainText(item.children, snapshot) : plainText([item], snapshot)).filter(Boolean).join(' ');
-  const compact = text.replace(/\s+/g, ' ').trim();
-  const chars = Array.from(compact);
-  return chars.length > 180 ? `${chars.slice(0, 180).join('')}…` : compact;
+  return text.replace(/\s+/g, ' ').trim();
 }
 export function toFlowNodes(data: Snapshot, matches: Set<string>, selected: Set<string>, groupColors: Record<string, string> = {}, onResizeStart?: ResizeNodeStart, onResizeEnd?: ResizeNodeEnd, resizable = true): CardNode[] {
   const byId = new Map(data.nodes.map(n => [n.id, n]));
