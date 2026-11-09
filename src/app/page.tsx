@@ -29,10 +29,24 @@ export default function Home() {
   const [openedEntity, setOpenedEntity] = useState<string>();
   const [openedNode, setOpenedNode] = useState<string>();
   const [editorSession, setEditorSession] = useState(0);
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [themeReady, setThemeReady] = useState(false);
   const repo = useRef<ProjectRepository | undefined>(undefined);
   const saver = useRef<Autosave | undefined>(undefined);
   const current = useRef<Snapshot | undefined>(undefined);
   function report(e: unknown) { setError(e instanceof Error ? e.message : '処理に失敗しました'); }
+  useEffect(() => {
+    let initial: 'light' | 'dark' = 'light';
+    try { if (localStorage.getItem('scenario-editor-theme') === 'dark') initial = 'dark'; } catch { /* Theme is a preference; the app remains usable when storage is blocked. */ }
+    document.documentElement.dataset.theme = initial;
+    setTheme(initial); setThemeReady(true);
+  }, []);
+  useEffect(() => {
+    if (!themeReady) return;
+    document.documentElement.dataset.theme = theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#151a17' : '#f5f4ef');
+    try { localStorage.setItem('scenario-editor-theme', theme); } catch { /* Keep the current-session choice even if it cannot be persisted. */ }
+  }, [theme, themeReady]);
   function select(row: Stored) {
     setEditorSession(value => value + 1);
     current.current = row.snapshot; setActive(row.snapshot); setHistory([]); setError(''); setStatus('saved');
@@ -81,7 +95,7 @@ export default function Home() {
     return null;
   }
   return <div className={view === 'graph' ? 'app graph-mode' : focus ? 'app focus' : 'app'}>
-    <header className="topbar"><a className="brand" href="/">◈ <span>SCENARIO <b>EDITOR</b></span></a><span className="phase">PHASE 04 / アウトライン・出力</span><div className="view-switch"><button aria-pressed={view === 'overview'} onClick={() => setView('overview')}>概要・保存</button><button disabled={!active} aria-pressed={view === 'graph'} onClick={() => setView('graph')}>グラフ</button>{([["writing","執筆"],["entities","設定資料"],["types","タイプ"],["tags","タグ"],["outline","アウトライン・出力"]] as const).map(([id,label]) => <button key={id} disabled={!active} aria-pressed={view === id} onClick={() => setView(id)}>{label}</button>)}</div>{view === 'overview' && <button onClick={() => setFocus(!focus)}>{focus ? '通常表示に戻る' : '集中表示'}</button>}</header>
+    <header className="topbar"><a className="brand" href="/">◈ <span>SCENARIO <b>EDITOR</b></span></a><span className="phase">PHASE 04 / アウトライン・出力</span><div className="view-switch"><button aria-pressed={view === 'overview'} onClick={() => setView('overview')}>概要・保存</button><button disabled={!active} aria-pressed={view === 'graph'} onClick={() => setView('graph')}>グラフ</button>{([["writing","執筆"],["entities","設定資料"],["types","タイプ"],["tags","タグ"],["outline","アウトライン・出力"]] as const).map(([id,label]) => <button key={id} disabled={!active} aria-pressed={view === id} onClick={() => setView(id)}>{label}</button>)}</div>{view === 'overview' && <button onClick={() => setFocus(!focus)}>{focus ? '通常表示に戻る' : '集中表示'}</button>}<button className="theme-toggle" aria-label={theme === 'dark' ? 'ライトモードに切り替え' : 'ダークモードに切り替え'} aria-pressed={theme === 'dark'} onClick={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? '☀ ライト' : '☾ ダーク'}</button></header>
     <div className="workspace" hidden={view !== 'overview'} style={view !== 'overview' ? { display: 'none' } : undefined}>
       <aside className="sidebar"><div className="eyebrow">YOUR WORKSPACE</div><h2>シナリオ</h2><button className="primary wide" disabled={!ready || busy} onClick={() => void run(async () => { await settle(); const row = await repo.current!.save(createProject(), 0); await refresh(); select(row); })}>＋ 新規プロジェクト</button>
         <nav aria-label="プロジェクト一覧">{projects.map(row => <button className={row.id === active?.project.id ? 'project selected' : 'project'} key={row.id} disabled={busy} onClick={() => void run(async () => { await settle(); const latest = await repo.current!.load(row.id); if (latest) select(latest); await refresh(); })}><span>▤</span><span>{row.id === active?.project.id ? active.project.title || '無題' : row.snapshot.project.title || '無題'}<small>{new Date(row.savedAt).toLocaleDateString('ja-JP')}</small></span></button>)}</nav>
