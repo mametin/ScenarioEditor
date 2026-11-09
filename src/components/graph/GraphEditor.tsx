@@ -99,7 +99,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, disabled 
     if (selectedEdges[0]) setEdgeId(selectedEdges[0].id);
   }, []);
   const clearFilters = () => { setQuery(''); setTypeFilter(''); setTagFilter([]); setKinds(new Set(Object.keys(edgeKinds))); };
-  return <section className={`graph-workbench mobile-${mobileTab}`} style={{ '--left-width': left ? `${leftWidth}px` : '0px', '--right-width': right ? `${rightWidth}px` : '0px' } as CSSProperties}
+  return <section className={`graph-workbench mobile-${mobileTab} ${connecting ? 'is-connecting' : ''}`} style={{ '--left-width': left ? `${leftWidth}px` : '0px', '--right-width': right ? `${rightWidth}px` : '0px' } as CSSProperties}
     onKeyDown={e => { if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"]')) return; if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); travel(e.shiftKey ? 'redo' : 'undo'); } }}>
     <div className="graph-toolbar"><div><span className="eyebrow">SCENARIO MAP</span><strong>{snapshot.project.title || '無題のシナリオ'}</strong></div><div className="graph-actions"><button disabled={disabled} className="primary" onClick={addNode}>＋ ノード</button><button disabled={!history.current.canUndo || disabled} onClick={() => travel('undo')}>↶ Undo</button><button disabled={!history.current.canRedo || disabled} onClick={() => travel('redo')}>↷ Redo</button><button onClick={() => setLeft(!left)} aria-pressed={left}>一覧</button><button onClick={() => setRight(!right)} aria-pressed={right}>詳細</button></div></div>
     <nav className="graph-mobile-tabs" aria-label="グラフの画面">{[['list','ノード一覧'],['graph','グラフ'],['details','編集']].map(([id,label]) => <button key={id} aria-pressed={mobileTab === id} onClick={() => setMobileTab(id)}>{label}</button>)}</nav>
@@ -119,14 +119,14 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, disabled 
       </aside>
       {left && <ResizeHandle side="left" width={leftWidth} onResize={setLeftWidth}/>}
       <div className="graph-center">
-        <div className="connection-tools"><label>新規接続<select aria-label="新規接続の種類" value={kind} onChange={e => setKind(e.target.value as ScenarioEdge['kind'])}>{Object.entries(edgeKinds).map(([id,label]) => <option value={id} key={id}>{label}</option>)}</select></label><button aria-pressed={connecting} onClick={() => { setConnecting(!connecting); setSourceId(undefined); }}>{connecting ? '接続をキャンセル' : '2つのノードを選んで接続'}</button><span role="status">{connecting ? sourceId ? '次に接続先を選択（同じノードも可）' : '接続元を選択してください' : '端の丸をドラッグして接続'}</span></div>
+        <div className="connection-tools"><label>新規接続<select aria-label="新規接続の種類" value={kind} disabled={disabled} onChange={e => setKind(e.target.value as ScenarioEdge['kind'])}>{Object.entries(edgeKinds).map(([id,label]) => <option value={id} key={id}>{label}</option>)}</select></label><button disabled={disabled} aria-pressed={connecting} onClick={() => { setConnecting(!connecting); setSourceId(undefined); }}>{connecting ? '接続モードを終了' : '接続モードを開始'}</button><span role="status">{connecting ? sourceId ? '接続先を選ぶか、接続点をドラッグ' : '接続元を選ぶか、接続点をドラッグ' : '接続モードを開始すると接続点が表示されます'}</span></div>
         <div className="flow-canvas" aria-label="シナリオグラフ">
           <ReactFlow<CardNode, ScenarioFlowEdge> nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onInit={instance => { flow.current = instance; }} fitView minZoom={0.15} maxZoom={2} deleteKeyCode={null} nodesDraggable={!disabled} nodesConnectable={!disabled} connectOnClick selectionOnDrag selectionKeyCode="Shift" multiSelectionKeyCode={['Control','Meta']} onSelectionChange={onSelectionChange}
             onNodesChange={changes => { setNodes(old => { const next = applyNodeChanges(changes, old); nodesRef.current = next; return next; }); if (changes.some(c => c.type === 'position' && c.position && c.dragging === undefined) && !dragging.current) finishMove(changes); }}
             onNodeDragStart={() => { dragging.current = true; }} onNodeDragStop={(_, moved, movedNodes) => finishMove((movedNodes.length ? movedNodes : [moved]).map(n => ({ type: 'position' as const, id: n.id, position: n.position })))}
             onNodeClick={(_, n) => { if (connecting) selectNode(n.id); else { setEdgeId(undefined); if (!selected.has(n.id)) setSelected(new Set([n.id])); } }}
             onEdgeClick={(_, e) => { setEdgeId(e.id); setSelected(new Set()); }}
-            onConnect={connection => commit(d => { connect(d, connection.source, connection.target, kind); })}
+            onConnect={connection => { commit(d => { connect(d, connection.source, connection.target, kind); }); setConnecting(false); setSourceId(undefined); }}
             onPaneClick={() => { if (!connecting) { setSelected(new Set()); setEdgeId(undefined); } }}
             ariaLabelConfig={{ 'controls.zoomIn.ariaLabel': '拡大', 'controls.zoomOut.ariaLabel': '縮小', 'controls.fitView.ariaLabel': '全体を表示', 'controls.interactive.ariaLabel': '操作を切り替え' }}>
             <Background color="#c9d3c8" gap={22}/><Controls/><MiniMap pannable zoomable nodeColor={n => n.data.color as string} ariaLabel="グラフ全体図"/>
