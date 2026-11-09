@@ -55,6 +55,7 @@
 .graph-interaction-switch{display:flex;align-items:center;gap:4px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--surface-soft);}
 .graph-interaction-switch button{padding:4px 8px;white-space:nowrap;font-size:13px;}
 .graph-interaction-switch button[aria-pressed="true"]{background:var(--surface-active);border-color:var(--accent);color:var(--ink);}
+.graph-interaction-switch kbd{font:inherit;font-size:.8em;opacity:.7;}
 .is-pan-mode .flow-canvas .react-flow__node,.is-pan-mode .flow-canvas .react-flow__edge{pointer-events:none!important;}
 .is-pan-mode .flow-canvas .react-flow__pane{cursor:grab;}
 .is-pan-mode .flow-canvas .react-flow__pane:active{cursor:grabbing;}
