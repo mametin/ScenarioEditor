@@ -1,0 +1,10 @@
+'use client';
+import { useState } from 'react';
+import type { Snapshot } from '../../domain/schema';
+import { editTypes } from '../../domain/types';
+import './types.css';
+export default function TagManager({snapshot,onChange}:{snapshot:Snapshot;onChange:(s:Snapshot)=>void}) {
+ const [selected,setSelected]=useState<string[]>([]); const [tagId,setTagId]=useState('');
+ function change(operation:(d:Snapshot)=>void){onChange(editTypes(snapshot,operation));}
+ return <section className="tag-manager"><h2>タグ管理</h2><button onClick={()=>change(d=>{d.tags.push({id:crypto.randomUUID(),name:'新しいタグ',color:'#657e6d'});})}>＋ タグ</button>{snapshot.tags.map(t=><div className="tag-row" key={t.id}><input aria-label="タグ名" value={t.name} onChange={e=>change(d=>{d.tags.find(x=>x.id===t.id)!.name=e.target.value;})}/><input type="color" aria-label={`${t.name}の色`} value={/^#[0-9a-f]{6}$/i.test(t.color)?t.color:'#657e6d'} onChange={e=>change(d=>{d.tags.find(x=>x.id===t.id)!.color=e.target.value;})}/><button onClick={()=>{if(confirm('タグとノード・設定資料への付与を削除しますか？保存履歴から復元できます。'))change(d=>{d.tags=d.tags.filter(x=>x.id!==t.id);for(const item of [...d.nodes,...d.entities])item.tagIds=item.tagIds.filter(id=>id!==t.id);});}}>削除</button></div>)}<h3>ノードのタグを一括変更</h3>{snapshot.nodes.map(n=><label key={n.id}><input type="checkbox" checked={selected.includes(n.id)} onChange={e=>setSelected(e.target.checked?[...selected,n.id]:selected.filter(id=>id!==n.id))}/>{n.title||'無題'}</label>)}<select aria-label="一括変更するタグ" value={tagId} onChange={e=>setTagId(e.target.value)}><option value="">タグを選択</option>{snapshot.tags.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select><div className="type-toolbar"><button disabled={!snapshot.tags.some(t=>t.id===tagId)||!selected.length} onClick={()=>change(d=>{for(const n of d.nodes)if(selected.includes(n.id)&&!n.tagIds.includes(tagId))n.tagIds.push(tagId);})}>選択ノードに追加</button><button disabled={!tagId||!selected.length} onClick={()=>change(d=>{for(const n of d.nodes)if(selected.includes(n.id))n.tagIds=n.tagIds.filter(id=>id!==tagId);})}>選択ノードから解除</button></div></section>;
+}
