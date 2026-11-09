@@ -4,7 +4,7 @@ import { ReactFlow, Background, Controls, MiniMap, Handle, Position, BaseEdge, a
 import '@xyflow/react/dist/style.css';
 import './graph.css';
 import { type ScenarioEdge, type Snapshot } from '../../domain/schema';
-import { changeGraph, connect, createNode, deleteNodes, duplicateNode, edgeKinds, filterNodes, GraphHistory, groupNodes, moveNodes, ungroup, updateNode } from '../../domain/graph';
+import { addNodesToGroup, changeGraph, connect, createNode, deleteNodes, duplicateNode, edgeKinds, filterNodes, GraphHistory, groupNodes, moveNodes, ungroup, updateNode } from '../../domain/graph';
 import { toFlowEdges, toFlowNodes, type CardNode, type ScenarioFlowEdge } from './adapter';
 import ColorPicker from '../ColorPicker';
 
@@ -66,6 +66,9 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, disabled 
   useEffect(() => { if (!dragging.current) setNodes(toFlowNodes(snapshot, matches, selected, groupColors)); }, [snapshot, matches, selected, groupColors]);
   const node = snapshot.nodes.find(n => selected.has(n.id));
   const edge = snapshot.edges.find(e => e.id === edgeId);
+  const selectedGroups = snapshot.nodes.filter(item => selected.has(item.id) && snapshot.nodes.some(child => child.parentGroupId === item.id));
+  const addTargetGroupId = selectedGroups.length === 1 ? selectedGroups[0].id : undefined;
+  const canAddToGroup = !!addTargetGroupId && [...selected].some(id => id !== addTargetGroupId && snapshot.nodes.some(item => item.id === id && item.parentGroupId !== addTargetGroupId));
 
   function setGroupColor(id: string, color?: string) {
     setGroupColors(current => {
@@ -131,9 +134,10 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, disabled 
         <label>タイプ<select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}><option value="">すべてのタイプ</option>{snapshot.nodeTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
         {snapshot.tags.length > 0 && <fieldset><legend>タグで絞り込み</legend><select aria-label="タグの検索条件" value={tagMode} onChange={e => setTagMode(e.target.value as 'and' | 'or')}><option value="or">OR：いずれか</option><option value="and">AND：すべて</option></select>{snapshot.tags.map(t => <label className="check" key={t.id}><input type="checkbox" checked={tagFilter.includes(t.id)} onChange={e => setTagFilter(e.target.checked ? [...tagFilter,t.id] : tagFilter.filter(id => id !== t.id))}/>{t.name}</label>)}</fieldset>}
         <button className="wide" onClick={clearFilters}>絞り込みを解除</button>
-        <div className="graph-node-list">{snapshot.nodes.filter(n => matches.has(n.id)).map(n => <div className={selected.has(n.id) ? 'node-list-row active' : 'node-list-row'} key={n.id}><input type="checkbox" aria-label={`${n.title || '無題'}を選択`} checked={selected.has(n.id)} onChange={e => { setEdgeId(undefined); setSelected(old => { const next = new Set(old); if (e.target.checked) next.add(n.id); else next.delete(n.id); return next; }); }}/><button onClick={() => selectNode(n.id)}><span>{n.parentGroupId ? '↳ ' : ''}{n.title || '無題'}</span><small>{snapshot.nodeTypes.find(t => t.id === n.typeId)?.name}</small></button></div>)}</div>
+        <div className="graph-node-list">{snapshot.nodes.filter(n => matches.has(n.id)).map(n => { const childCount = snapshot.nodes.filter(child => child.parentGroupId === n.id).length; return <div className={selected.has(n.id) ? 'node-list-row active' : 'node-list-row'} key={n.id}><input type="checkbox" aria-label={`${n.title || '無題'}を選択`} checked={selected.has(n.id)} onChange={e => { setEdgeId(undefined); setSelected(old => { const next = new Set(old); if (e.target.checked) next.add(n.id); else next.delete(n.id); return next; }); }}/><button onClick={() => selectNode(n.id)}><span>{n.parentGroupId ? '↳ ' : ''}{n.title || '無題'}</span><small>{snapshot.nodeTypes.find(t => t.id === n.typeId)?.name}{childCount > 0 && ` · グループ ${childCount}`}</small></button></div>; })}</div>
         {!matches.size && <p className="muted">ノードがありません。作成するか、絞り込みを解除してください。</p>}
         <button className="wide" disabled={!selected.size || disabled} onClick={() => { let id = ''; commit(d => { id = groupNodes(d, selected); }); if (id) setSelected(new Set([id])); }}>選択ノードをグループ化</button>
+        <button className="wide" disabled={!canAddToGroup || disabled} title="既存グループと追加するノードを選択してください" onClick={() => { if (!addTargetGroupId) return; commit(d => addNodesToGroup(d, addTargetGroupId, selected)); setSelected(new Set([addTargetGroupId])); }}>選択ノードを既存グループに追加</button>
         <fieldset><legend>接続の表示</legend>{Object.entries(edgeKinds).map(([id,label]) => <label className="check" key={id}><input type="checkbox" checked={kinds.has(id)} onChange={e => setKinds(old => { const next = new Set(old); if (e.target.checked) next.add(id); else next.delete(id); return next; })}/>{label}</label>)}</fieldset>
         <details><summary>接続一覧（{snapshot.edges.length}）</summary>{snapshot.edges.map(e => <button className="connection-row" key={e.id} onClick={() => { setEdgeId(e.id); setSelected(new Set()); setMobileTab('details'); }}>{snapshot.nodes.find(n => n.id === e.sourceId)?.title} → {snapshot.nodes.find(n => n.id === e.targetId)?.title}<small>{edgeKinds[e.kind]} · {e.label || 'ラベルなし'}</small></button>)}</details>
       </aside>

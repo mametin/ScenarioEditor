@@ -74,6 +74,21 @@ export function groupNodes(draft: Snapshot, ids: Set<string>): string {
   for (const node of chosen) node.parentGroupId = id;
   return id;
 }
+/** Add selected nodes to an existing group without changing their absolute
+ * positions. If both a parent group and one of its descendants are selected,
+ * only the parent is moved so their existing nesting remains intact. */
+export function addNodesToGroup(draft: Snapshot, groupId: string, ids: Set<string>) {
+  const group = draft.nodes.find(n => n.id === groupId);
+  if (!group) throw new Error('追加先のグループが見つかりません');
+  const selectedIds = new Set([...ids].filter(id => id !== groupId));
+  const moving = draft.nodes.filter(node => selectedIds.has(node.id) && ![...selectedIds].some(otherId => otherId !== node.id && descendants(draft, otherId).has(node.id)));
+  if (!moving.length) throw new Error('グループに追加するノードを選択してください');
+  for (const node of moving) {
+    if (descendants(draft, node.id).has(groupId)) throw new Error('自分自身または子孫のグループには追加できません');
+  }
+  const now = new Date().toISOString();
+  for (const node of moving) { node.parentGroupId = groupId; node.updatedAt = now; }
+}
 export function ungroup(draft: Snapshot, id: string) {
   const group = draft.nodes.find(n => n.id === id); if (!group) return;
   for (const node of draft.nodes) if (node.parentGroupId === id) node.parentGroupId = group.parentGroupId;
