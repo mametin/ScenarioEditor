@@ -6,6 +6,7 @@ import './graph.css';
 import { type ScenarioEdge, type Snapshot } from '../../domain/schema';
 import { changeGraph, connect, createNode, deleteNodes, duplicateNode, edgeKinds, filterNodes, GraphHistory, groupNodes, moveNodes, ungroup, updateNode } from '../../domain/graph';
 import { toFlowEdges, toFlowNodes, type CardNode, type ScenarioFlowEdge } from './adapter';
+import ColorPicker from '../ColorPicker';
 
 function NodeCard({ data, selected }: NodeProps<CardNode>) {
   return <div className={`node-card ${data.children ? 'group-card' : ''} ${selected ? 'chosen' : ''} ${data.match ? '' : 'context-node'}`} style={{ '--node-color': data.color } as CSSProperties}>
@@ -47,15 +48,34 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, disabled 
   const [error, setError] = useState(''); const [newTag, setNewTag] = useState('');
   const [left, setLeft] = useState(true); const [right, setRight] = useState(true); const [leftWidth, setLeftWidth] = useState(240); const [rightWidth, setRightWidth] = useState(288);
   const [mobileTab, setMobileTab] = useState('graph');
+  const [groupColors, setGroupColors] = useState<Record<string, string>>({});
+  const groupColorKey = `scenario-editor-group-colors:${snapshot.project.id}`;
   const flow = useRef<ReactFlowInstance<CardNode, ScenarioFlowEdge> | null>(null);
   const dragging = useRef(false);
   const matches = useMemo(() => filterNodes(snapshot, query, typeFilter, tagFilter, tagMode), [snapshot, query, typeFilter, tagFilter, tagMode]);
   const [nodes, setNodes] = useState<CardNode[]>(() => toFlowNodes(snapshot, matches, selected));
   const nodesRef = useRef(nodes); nodesRef.current = nodes;
   const edges = useMemo(() => toFlowEdges(snapshot, matches, kinds, edgeId), [snapshot, matches, kinds, edgeId]);
-  useEffect(() => { if (!dragging.current) setNodes(toFlowNodes(snapshot, matches, selected)); }, [snapshot, matches, selected]);
+  useEffect(() => {
+    try {
+      const raw: unknown = JSON.parse(localStorage.getItem(groupColorKey) ?? '{}');
+      const valid = raw && typeof raw === 'object' && !Array.isArray(raw) ? Object.fromEntries(Object.entries(raw).filter(([, color]) => typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color))) : {};
+      setGroupColors(valid);
+    } catch { setGroupColors({}); }
+  }, [groupColorKey]);
+  useEffect(() => { if (!dragging.current) setNodes(toFlowNodes(snapshot, matches, selected, groupColors)); }, [snapshot, matches, selected, groupColors]);
   const node = snapshot.nodes.find(n => selected.has(n.id));
   const edge = snapshot.edges.find(e => e.id === edgeId);
+
+  function setGroupColor(id: string, color?: string) {
+    setGroupColors(current => {
+      const next = { ...current };
+      if (color) next[id] = color;
+      else delete next[id];
+      try { localStorage.setItem(groupColorKey, JSON.stringify(next)); } catch { setError('グループ色をこのブラウザに保存できませんでした。'); }
+      return next;
+    });
+  }
 
   function commit(change: (draft: Snapshot) => void) {
     if (disabled) return;
@@ -137,6 +157,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, disabled 
       {right && <ResizeHandle side="right" width={rightWidth} onResize={setRightWidth}/>}
       <aside className={`graph-inspector ${right ? '' : 'pane-collapsed'}`}><div className="eyebrow">INSPECTOR</div>
         {edge ? <><h2>接続を編集</h2><label>接続元<select value={edge.sourceId} disabled={disabled} onChange={e => patchEdge({ sourceId: e.target.value })}>{snapshot.nodes.map(n => <option key={n.id} value={n.id}>{n.title || '無題'}</option>)}</select></label><label>接続先<select value={edge.targetId} disabled={disabled} onChange={e => patchEdge({ targetId: e.target.value })}>{snapshot.nodes.map(n => <option key={n.id} value={n.id}>{n.title || '無題'}</option>)}</select></label><label>種類<select value={edge.kind} disabled={disabled} onChange={e => patchEdge({ kind: e.target.value as ScenarioEdge['kind'] })}>{Object.entries(edgeKinds).map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></label><label>ラベル<input value={edge.label} disabled={disabled} onChange={e => patchEdge({ label: e.target.value })}/></label><label>条件テキスト<textarea value={edge.condition} disabled={disabled} onChange={e => patchEdge({ condition: e.target.value })}/></label><p className="muted">条件の自動評価は行いません。</p><button className="danger wide" disabled={disabled} onClick={removeSelection}>接続を削除</button></> : node ? <><h2>ノードを編集</h2>{selected.size > 1 && <p>{selected.size}件選択中 · 項目編集は先頭のノード</p>}<label>ノードタイトル<input value={node.title} disabled={disabled} onChange={e => commit(d => updateNode(d, node.id, { title: e.target.value }))}/></label><label>ノードタイプ<select value={node.typeId} disabled={disabled} onChange={e => commit(d => updateNode(d, node.id, { typeId: e.target.value }))}>{snapshot.nodeTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
+          {snapshot.nodes.some(item => item.parentGroupId === node.id) && <div className="group-color-setting"><ColorPicker label="グループ色" value={groupColors[node.id] ?? snapshot.nodeTypes.find(t => t.id === node.typeId)?.color ?? '#657e6d'} onChange={color => setGroupColor(node.id, color)}/><p className="muted">この色はプロジェクトごとにこのブラウザへ保存されます。</p><button type="button" onClick={() => setGroupColor(node.id)}>タイプ色に戻す</button></div>}
           <fieldset><legend>タグ</legend>{snapshot.tags.map(t => <label className="check" key={t.id}><input type="checkbox" checked={node.tagIds.includes(t.id)} disabled={disabled} onChange={e => commit(d => updateNode(d, node.id, { tagIds: e.target.checked ? [...node.tagIds,t.id] : node.tagIds.filter(id => id !== t.id) }))}/>{t.name}</label>)}<div className="new-tag"><input aria-label="新しいタグ名" value={newTag} onChange={e => setNewTag(e.target.value)} placeholder="タグ名"/><button disabled={!newTag.trim() || disabled} onClick={() => { commit(d => { const tag = d.tags.find(t => t.name === newTag.trim()) ?? { id: crypto.randomUUID(), name: newTag.trim(), color: '#657e6d' }; if (!d.tags.some(t => t.id === tag.id)) d.tags.push(tag); const n = d.nodes.find(n => n.id === node.id)!; if (!n.tagIds.includes(tag.id)) n.tagIds.push(tag.id); }); setNewTag(''); }}>追加</button></div></fieldset>
           <div className="coordinate-fields">{(['x','y'] as const).map(axis => <label key={axis}>{axis.toUpperCase()}<input type="number" aria-label={`${axis.toUpperCase()}座標`} value={Math.round(node.position[axis] * 100)/100} disabled={disabled} onChange={e => { const value = e.target.valueAsNumber; if (Number.isFinite(value)) commit(d => moveNodes(d, new Map([[node.id, { ...node.position, [axis]: value }]]))); }}/></label>)}</div>
           <button className="wide" disabled={disabled} onClick={() => { let id = ''; commit(d => { id = duplicateNode(d, node.id); }); if (id) setSelected(new Set([id])); }}>ノードを複製（本文もコピー）</button>

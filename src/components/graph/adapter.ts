@@ -19,7 +19,7 @@ function previewText(content: Content[], snapshot: Snapshot): string {
   const chars = Array.from(compact);
   return chars.length > 180 ? `${chars.slice(0, 180).join('')}…` : compact;
 }
-export function toFlowNodes(data: Snapshot, matches: Set<string>, selected: Set<string>): CardNode[] {
+export function toFlowNodes(data: Snapshot, matches: Set<string>, selected: Set<string>, groupColors: Record<string, string> = {}): CardNode[] {
   const byId = new Map(data.nodes.map(n => [n.id, n]));
   const included = new Set(matches);
   for (const id of matches) { let parent = byId.get(id)?.parentGroupId; while (parent) { included.add(parent); parent = byId.get(parent)?.parentGroupId; } }
@@ -38,7 +38,7 @@ export function toFlowNodes(data: Snapshot, matches: Set<string>, selected: Set<
     const type = data.nodeTypes.find(t => t.id === n.typeId)!;
     const children = data.nodes.filter(c => c.parentGroupId === n.id).length;
     const doc = data.documents.find(d => d.id === n.documentId);
-    return { id: n.id, type: 'scenario', position: parent ? { x: n.position.x - parent.position.x, y: n.position.y - parent.position.y } : { ...n.position }, parentId: parent?.id, selected: selected.has(n.id), hidden: !included.has(n.id), dragHandle: '.node-heading', style: sizes.get(n.id), data: { title: n.title, preview: doc ? previewText(doc.content, data) : '', typeName: type.name, color: type.color, tags: n.tagIds.map(id => data.tags.find(t => t.id === id)?.name ?? ''), children, match: matches.has(n.id) } };
+    return { id: n.id, type: 'scenario', position: parent ? { x: n.position.x - parent.position.x, y: n.position.y - parent.position.y } : { ...n.position }, parentId: parent?.id, selected: selected.has(n.id), hidden: !included.has(n.id), dragHandle: '.node-heading', style: sizes.get(n.id), data: { title: n.title, preview: doc ? previewText(doc.content, data) : '', typeName: type.name, color: children > 0 ? groupColors[n.id] ?? type.color : type.color, tags: n.tagIds.map(id => data.tags.find(t => t.id === id)?.name ?? ''), children, match: matches.has(n.id) } };
   });
 }
 export function toFlowEdges(data: Snapshot, matches: Set<string>, kinds: Set<string>, selectedId?: string): ScenarioFlowEdge[] {
