@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { ReactFlow, Background, Controls, MiniMap, Handle, Position, BaseEdge, NodeResizer, applyNodeChanges, type NodeProps, type EdgeProps, type NodeChange, type ReactFlowInstance } from '@xyflow/react';
+import { ReactFlow, Background, Controls, MiniMap, Handle, Position, BaseEdge, NodeResizer, NodeResizeControl, applyNodeChanges, type NodeProps, type EdgeProps, type NodeChange, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import './graph.css';
 import { type ScenarioEdge, type Snapshot } from '../../domain/schema';
@@ -10,7 +10,8 @@ import ColorPicker from '../ColorPicker';
 
 function NodeCard({ id, data, selected }: NodeProps<CardNode>) {
   return <div className={`node-card ${data.children ? 'group-card' : ''} ${selected ? 'chosen' : ''} ${data.match ? '' : 'context-node'}`} style={{ '--node-color': data.color } as CSSProperties}>
-    <NodeResizer isVisible={selected && data.resizable} minWidth={data.minWidth} minHeight={data.minHeight} maxWidth={1800} maxHeight={1800} color="var(--accent)" handleStyle={{ width: 12, height: 12, border: '2px solid var(--paper)', borderRadius: 3 }} onResizeStart={() => data.onResizeStart?.(id)} onResizeEnd={(_, params) => data.onResizeEnd?.(id, params)}/>
+    <NodeResizer isVisible={selected && data.resizable} minWidth={data.minWidth} minHeight={data.minHeight} maxWidth={1800} maxHeight={1800} color="var(--accent)" autoScale={false} handleStyle={{ width: 8, height: 8, border: '1px solid var(--paper)', borderRadius: 2 }} onResizeStart={() => data.onResizeStart?.(id)} onResizeEnd={(_, params) => data.onResizeEnd?.(id, params)}/>
+    {(['top', 'right', 'bottom', 'left'] as const).map(position => <NodeResizeControl key={position} position={position} resizeDirection={position === 'left' || position === 'right' ? 'horizontal' : 'vertical'} minWidth={data.minWidth} minHeight={data.minHeight} maxWidth={1800} maxHeight={1800} color="var(--accent)" autoScale={false} style={{ width: 8, height: 8, border: '1px solid var(--paper)', borderRadius: 2 }} onResizeStart={() => data.onResizeStart?.(id)} onResizeEnd={(_, params) => data.onResizeEnd?.(id, params)}/>)}
     <Handle type="target" position={Position.Left} aria-label="接続先" />
     <div className="node-heading"><small>{data.typeName}{data.children > 0 && ` · グループ ${data.children}`}</small><strong>{data.title || '無題'}</strong></div>
     {data.preview && <p className="node-preview">{data.preview}</p>}
