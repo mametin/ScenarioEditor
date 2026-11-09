@@ -5,7 +5,7 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { parseSnapshot, type EntityReference, type Snapshot } from '../../domain/schema';
 import { resolveReference } from '../../domain/project';
-import { fromEditorJSON, toEditorJSON } from './adapter';
+import { fromEditorJSON, normalizeContent, toEditorJSON } from './adapter';
 import { recoveryKey, persistRecovery } from './recovery';
 import './editor.css';
 
@@ -48,7 +48,7 @@ function EditorInstance(props: ScenarioEditorProps) {
     if (!content.length) return { json: { type: 'doc', content: [{ type: 'paragraph' }] }, error: '' };
     try {
       const json = toEditorJSON(content); const parsed = getSchema(extensions).nodeFromJSON(json); parsed.check();
-      if (JSON.stringify(fromEditorJSON(parsed.toJSON())) !== JSON.stringify(content)) throw new Error('本文を変換すると構造が変わります');
+      if (JSON.stringify(normalizeContent(fromEditorJSON(parsed.toJSON()))) !== JSON.stringify(normalizeContent(content))) throw new Error('本文を変換すると構造が変わります');
       return { json, error: '' };
     } catch (e) { return { json: { type: 'doc', content: [{ type: 'paragraph' }] }, error: `${e instanceof Error ? e.message : '本文形式の不一致'}。元データを保護するため編集を停止しました。JSONバックアップをご利用ください。` }; }
   }
@@ -69,7 +69,7 @@ function EditorInstance(props: ScenarioEditorProps) {
     },
   });
   useEffect(() => { editor?.setEditable(!props.disabled && !prepared.error); }, [editor, props.disabled, prepared.error]);
-  useEffect(() => { for (const render of refreshViews.current) render(); if (!editor || !document || failedUpdate.current || prepared.error) return; try { const own = fromEditorJSON(editor.getJSON()); if (JSON.stringify(own) !== JSON.stringify(document.content)) editor.commands.setContent(prepared.json, { emitUpdate: false }); } catch (e) { setError(e instanceof Error ? e.message : '本文を読み込めません'); } }, [editor, document, props.snapshot]);
+  useEffect(() => { for (const render of refreshViews.current) render(); if (!editor || !document || failedUpdate.current || prepared.error) return; try { const own = fromEditorJSON(editor.getJSON()); if (JSON.stringify(normalizeContent(own)) !== JSON.stringify(normalizeContent(document.content))) editor.commands.setContent(prepared.json, { emitUpdate: false }); } catch (e) { setError(e instanceof Error ? e.message : '本文を読み込めません'); } }, [editor, document, props.snapshot]);
   if (!document) return <p role="alert">本文が見つかりません。</p>;
   if (prepared.error) return <p role="alert" className="editor-error">{prepared.error}</p>;
   const entity = props.snapshot.entities.find(e => e.id === entityId);

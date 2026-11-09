@@ -6,6 +6,56 @@ export function editTypes(snapshot: Snapshot, operation: (draft: Snapshot) => vo
 export function addType(draft: Snapshot, name: string) { const id = crypto.randomUUID(); draft.nodeTypes.push({ id, name, icon: '◇', color: '#657e6d', fields: [] }); return id; }
 export function addField(draft: Snapshot, typeId: string, kind: FieldDefinition['kind'], name: string) { const type = draft.nodeTypes.find(t => t.id === typeId); if (!type) throw new Error('タイプが見つかりません'); const id = crypto.randomUUID(); type.fields.push({ id, name, kind, hidden: false, options: [] }); return id; }
 export function fieldUsage(draft: Snapshot, fieldId: string) { return [...draft.nodes, ...draft.entities].filter(item => Object.hasOwn(item.fields, fieldId)).length; }
+/** Permanently remove a field definition and its values. Rich text documents are
+ * collected only when no other object still points to them. */
+export function deleteField(draft: Snapshot, typeId: string, fieldId: string) {
+  const type = draft.nodeTypes.find(t => t.id === typeId);
+  if (!type) throw new Error('タイプが見つかりません');
+  const index = type.fields.findIndex(f => f.id === fieldId);
+  if (index < 0) throw new Error('フィールドが見つかりません');
+  type.fields.splice(index, 1);
+  const removedDocuments = new Set<string>();
+  for (const item of [...draft.nodes, ...draft.entities]) {
+    const value = item.fields[fieldId];
+    if (value?.kind === 'richText') removedDocuments.add(value.documentId);
+    delete item.fields[fieldId];
+  }
+  for (const documentId of removedDocuments) {
+    const stillUsed = draft.nodes.some(n => n.documentId === documentId) || draft.entities.some(e => e.descriptionDocumentId === documentId) || [...draft.nodes, ...draft.entities].some(item => Object.values(item.fields).some(value => value.kind === 'richText' && value.documentId === documentId));
+    if (!stillUsed) draft.documents = draft.documents.filter(doc => doc.id !== documentId);
+  }
+}
+/** Remove a type after callers have confirmed its effects. Nodes are reassigned
+ * to a remaining type; values for the removed type's fields are deleted. */
+export function deleteType(draft: Snapshot, typeId: string) {
+  if (draft.nodeTypes.length <= 1) throw new Error('最後のタイプは削除できません');
+  const index = draft.nodeTypes.findIndex(t => t.id === typeId);
+  if (index < 0) throw new Error('タイプが見つかりません');
+  const removed = draft.nodeTypes[index];
+  const fallback = draft.nodeTypes.find(t => t.id !== typeId)!;
+  const fieldIds = new Set(removed.fields.map(field => field.id));
+  const removedDocuments = new Set<string>();
+  for (const node of draft.nodes.filter(n => n.typeId === typeId)) {
+    node.typeId = fallback.id;
+    node.updatedAt = new Date().toISOString();
+    for (const fieldId of fieldIds) {
+      const value = node.fields[fieldId];
+      if (value?.kind === 'richText') removedDocuments.add(value.documentId);
+      delete node.fields[fieldId];
+    }
+  }
+  for (const entity of draft.entities) for (const fieldId of fieldIds) {
+    const value = entity.fields[fieldId];
+    if (value?.kind === 'richText') removedDocuments.add(value.documentId);
+    delete entity.fields[fieldId];
+  }
+  draft.nodeTypes.splice(index, 1);
+  for (const documentId of removedDocuments) {
+    const stillUsed = draft.nodes.some(n => n.documentId === documentId) || draft.entities.some(e => e.descriptionDocumentId === documentId) || [...draft.nodes, ...draft.entities].some(item => Object.values(item.fields).some(value => value.kind === 'richText' && value.documentId === documentId));
+    if (!stillUsed) draft.documents = draft.documents.filter(doc => doc.id !== documentId);
+  }
+  return fallback.id;
+}
 /** Archive the definition as hidden, retaining its ID, options and every value. */
 export function archiveField(draft: Snapshot, typeId: string, fieldId: string) { const field = draft.nodeTypes.find(t => t.id === typeId)?.fields.find(f => f.id === fieldId); if (!field) throw new Error('フィールドが見つかりません'); field.hidden = true; }
 export function reorderField(draft: Snapshot, typeId: string, fieldId: string, direction: -1 | 1) { const fields = draft.nodeTypes.find(t => t.id === typeId)?.fields; if (!fields) return; const i = fields.findIndex(f => f.id === fieldId); const j = i + direction; if (i >= 0 && j >= 0 && j < fields.length) [fields[i], fields[j]] = [fields[j], fields[i]]; }

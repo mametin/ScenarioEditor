@@ -28,3 +28,21 @@ export function fromEditorJSON(doc: JSONContent): Content[] {
   };
   return (doc.content ?? []).map(convert);
 }
+
+/** Compare the stored document with the editor's canonical representation.
+ * ProseMirror adds default attributes (for example heading level 1) and orders
+ * marks by schema rank. Those harmless normalizations must not lock a valid
+ * document into read-only recovery mode. */
+export function normalizeContent(content: Content[]): Content[] {
+  const normalized: Content[] = [];
+  for (const item of content) {
+    if (item.kind === 'text') {
+      const marks = [...new Set(item.marks)].sort();
+      const previous = normalized.at(-1);
+      if (previous?.kind === 'text' && JSON.stringify(previous.marks) === JSON.stringify(marks)) previous.text += item.text;
+      else normalized.push({ ...item, marks });
+    } else if (item.kind === 'block') normalized.push({ ...item, ...(item.style === 'heading' ? { level: item.level ?? 1 } : {}), children: normalizeContent(item.children) });
+    else normalized.push(item);
+  }
+  return normalized;
+}
