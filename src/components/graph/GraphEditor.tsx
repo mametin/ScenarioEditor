@@ -1,10 +1,10 @@
 'use client';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { ReactFlow, Background, Controls, MiniMap, Handle, Position, BaseEdge, NodeResizeControl, applyNodeChanges, type NodeProps, type EdgeProps, type NodeChange, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import './graph.css';
 import { type ScenarioEdge, type Snapshot } from '../../domain/schema';
-import { addNodesToGroup, changeGraph, connect, createNode, deleteNodes, duplicateNode, edgeKinds, filterNodes, GraphHistory, groupNodes, moveNodes, resizeNode, ungroup, updateNode } from '../../domain/graph';
+import { addNodesToGroup, changeGraph, connect, createNode, deleteNodes, duplicateNode, edgeKinds, filterNodes, GraphHistory, groupNodes, moveNodes, reorderNode, resizeNode, ungroup, updateNode } from '../../domain/graph';
 import { toFlowEdges, toFlowNodes, type CardNode, type ResizeNodeEnd, type ResizeNodeStart, type ScenarioFlowEdge } from './adapter';
 import ColorPicker from '../ColorPicker';
 
@@ -48,6 +48,9 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, disabled 
   const latest = useRef(snapshot); latest.current = snapshot;
   const history = useRef(new GraphHistory());
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [dropTarget, setDropTarget] = useState<{ id: string; before: boolean } | null>(null);
+  const [draggedNodeId, setDraggedNodeId] = useState<string>();
   const [edgeId, setEdgeId] = useState<string>();
   const [query, setQuery] = useState(''); const [typeFilter, setTypeFilter] = useState(''); const [tagFilter, setTagFilter] = useState<string[]>([]); const [tagMode, setTagMode] = useState<'and' | 'or'>('or');
   const [kinds, setKinds] = useState(new Set<string>(Object.keys(edgeKinds)));
@@ -144,6 +147,48 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, disabled 
     if (selectedEdges[0]) setEdgeId(selectedEdges[0].id);
   }, []);
   const clearFilters = () => { setQuery(''); setTypeFilter(''); setTagFilter([]); setKinds(new Set(Object.keys(edgeKinds))); };
+  const childrenByParent = new Map<string | null, typeof snapshot.nodes>();
+  for (const item of snapshot.nodes) childrenByParent.set(item.parentGroupId, [...(childrenByParent.get(item.parentGroupId) ?? []), item]);
+  const visibleTreeIds = new Set(matches);
+  for (const id of matches) { let parentId = snapshot.nodes.find(item => item.id === id)?.parentGroupId; while (parentId) { visibleTreeIds.add(parentId); parentId = snapshot.nodes.find(item => item.id === parentId)?.parentGroupId; } }
+  function renderTreeItem(item: Snapshot['nodes'][number], depth: number): ReactNode {
+    if (!visibleTreeIds.has(item.id)) return null;
+    const children = childrenByParent.get(item.id) ?? [];
+    const visibleChildren = children.filter(child => visibleTreeIds.has(child.id));
+    const collapsed = collapsedGroups.has(item.id);
+    const childCount = children.length;
+    const dropClass = dropTarget?.id === item.id ? (dropTarget.before ? ' drop-before' : ' drop-after') : '';
+    return <div className="node-tree-item" key={item.id}>
+      <div className={`node-list-row${selected.has(item.id) ? ' active' : ''}${dropClass}`} onDragOver={event => {
+        event.stopPropagation();
+        const draggedId = draggedNodeId ?? event.dataTransfer.getData('text/plain');
+        const dragged = snapshot.nodes.find(candidate => candidate.id === draggedId);
+        if (!dragged || dragged.id === item.id || dragged.parentGroupId !== item.parentGroupId) return;
+        event.preventDefault(); event.dataTransfer.dropEffect = 'move';
+        const before = event.clientY < event.currentTarget.getBoundingClientRect().top + event.currentTarget.getBoundingClientRect().height / 2;
+        setDropTarget(old => old?.id === item.id && old.before === before ? old : { id: item.id, before });
+      }} onDrop={event => {
+        event.stopPropagation();
+        event.preventDefault();
+        const draggedId = draggedNodeId ?? event.dataTransfer.getData('text/plain');
+        const dragged = snapshot.nodes.find(candidate => candidate.id === draggedId);
+        if (dragged && dragged.parentGroupId === item.parentGroupId) {
+          const rect = event.currentTarget.getBoundingClientRect();
+          const before = event.clientY < rect.top + rect.height / 2;
+          commit(draft => reorderNode(draft, dragged.id, item.id, before));
+        }
+        setDropTarget(null); setDraggedNodeId(undefined);
+      }}>
+        <div className="node-tree-row" style={{ paddingLeft: `${depth * 16}px` }}>
+          {childCount > 0 ? <button type="button" className="tree-toggle" aria-label={`${item.title || '無題'}の子ノードを${collapsed ? '展開' : '折りたたむ'}`} aria-expanded={!collapsed} onClick={() => setCollapsedGroups(old => { const next = new Set(old); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; })}>{collapsed ? '▸' : '▾'}</button> : <span className="tree-toggle-spacer"/>}
+          <input type="checkbox" aria-label={`${item.title || '無題'}を選択`} checked={selected.has(item.id)} onChange={event => { setEdgeId(undefined); setSelected(old => { const next = new Set(old); if (event.target.checked) next.add(item.id); else next.delete(item.id); return next; }); }}/>
+          <button type="button" className="node-drag-grip" draggable={!disabled} aria-label={`${item.title || '無題'}を並べ替え`} title="ドラッグして同じ階層内で並べ替え" onClick={event => event.stopPropagation()} onDragStart={event => { if (disabled) { event.preventDefault(); return; } event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', item.id); setDraggedNodeId(item.id); setDropTarget(null); }} onDragEnd={() => { setDropTarget(null); setDraggedNodeId(undefined); }}>⠿</button>
+          <button className="node-list-title" onClick={() => selectNode(item.id)}><span>{item.title || '無題'}</span><small>{snapshot.nodeTypes.find(type => type.id === item.typeId)?.name}{childCount > 0 && ` · グループ ${childCount}`}</small></button>
+        </div>
+      </div>
+      {!collapsed && visibleChildren.map(child => renderTreeItem(child, depth + 1))}
+    </div>;
+  }
   return <section className={`graph-workbench mobile-${mobileTab} ${connecting ? 'is-connecting' : ''}`} style={{ '--left-width': left ? `${leftWidth}px` : '0px', '--right-width': right ? `${rightWidth}px` : '0px' } as CSSProperties}
     onKeyDown={e => { if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"]')) return; if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); travel(e.shiftKey ? 'redo' : 'undo'); } }}>
     <div className="graph-toolbar"><div><span className="eyebrow">SCENARIO MAP</span><strong>{snapshot.project.title || '無題のシナリオ'}</strong></div><div className="graph-actions"><button disabled={disabled} className="primary" onClick={addNode}>＋ ノード</button><button disabled={!history.current.canUndo || disabled} onClick={() => travel('undo')}>↶ Undo</button><button disabled={!history.current.canRedo || disabled} onClick={() => travel('redo')}>↷ Redo</button><button onClick={() => setLeft(!left)} aria-pressed={left}>一覧</button><button onClick={() => setRight(!right)} aria-pressed={right}>詳細</button></div></div>
@@ -156,7 +201,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, disabled 
         <label>タイプ<select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}><option value="">すべてのタイプ</option>{snapshot.nodeTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
         {snapshot.tags.length > 0 && <fieldset><legend>タグで絞り込み</legend><select aria-label="タグの検索条件" value={tagMode} onChange={e => setTagMode(e.target.value as 'and' | 'or')}><option value="or">OR：いずれか</option><option value="and">AND：すべて</option></select>{snapshot.tags.map(t => <label className="check" key={t.id}><input type="checkbox" checked={tagFilter.includes(t.id)} onChange={e => setTagFilter(e.target.checked ? [...tagFilter,t.id] : tagFilter.filter(id => id !== t.id))}/>{t.name}</label>)}</fieldset>}
         <button className="wide" onClick={clearFilters}>絞り込みを解除</button>
-        <div className="graph-node-list">{snapshot.nodes.filter(n => matches.has(n.id)).map(n => { const childCount = snapshot.nodes.filter(child => child.parentGroupId === n.id).length; return <div className={selected.has(n.id) ? 'node-list-row active' : 'node-list-row'} key={n.id}><input type="checkbox" aria-label={`${n.title || '無題'}を選択`} checked={selected.has(n.id)} onChange={e => { setEdgeId(undefined); setSelected(old => { const next = new Set(old); if (e.target.checked) next.add(n.id); else next.delete(n.id); return next; }); }}/><button onClick={() => selectNode(n.id)}><span>{n.parentGroupId ? '↳ ' : ''}{n.title || '無題'}</span><small>{snapshot.nodeTypes.find(t => t.id === n.typeId)?.name}{childCount > 0 && ` · グループ ${childCount}`}</small></button></div>; })}</div>
+        <div className="graph-node-list">{(childrenByParent.get(null) ?? []).filter(item => visibleTreeIds.has(item.id)).map(item => renderTreeItem(item, 0))}</div>
         {!matches.size && <p className="muted">ノードがありません。作成するか、絞り込みを解除してください。</p>}
         <button className="wide" disabled={!selected.size || disabled} onClick={() => { let id = ''; commit(d => { id = groupNodes(d, selected); }); if (id) setSelected(new Set([id])); }}>選択ノードをグループ化</button>
         <button className="wide" disabled={!canAddToGroup || disabled} title="既存グループと追加するノードを選択してください" onClick={() => { if (!addTargetGroupId) return; commit(d => addNodesToGroup(d, addTargetGroupId, selected)); setSelected(new Set([addTargetGroupId])); }}>選択ノードを既存グループに追加</button>

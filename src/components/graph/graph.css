@@ -13,3 +13,17 @@
 .node-content .node-heading{flex:0 0 auto}
 .node-content .node-preview{flex:0 0 auto;max-height:calc(4 * 1.65em);}
 .graph-workbench .react-flow__resize-control.handle{width:8px!important;height:8px!important;min-width:8px;min-height:8px;padding:0;}
+.node-list-row{padding:2px 6px;}
+.node-tree-row{display:flex;align-items:center;gap:5px;min-width:0;}
+.node-tree-row>input{flex:none;width:15px;height:15px;margin:0;accent-color:var(--accent);}
+.tree-toggle,.node-drag-grip{flex:none;width:20px;height:24px;padding:0;border:0;background:transparent;color:var(--muted);font-size:13px;line-height:1;}
+.tree-toggle:hover,.node-drag-grip:hover{background:#e8eee6;}
+.tree-toggle-spacer{flex:none;width:20px;height:24px;}
+.node-drag-grip{cursor:grab;touch-action:none;}
+.node-drag-grip:active{cursor:grabbing;}
+.node-list-title{border:0;background:transparent;text-align:left;min-width:0;flex:1;padding:7px 4px;}
+.node-list-title:hover{background:transparent;}
+.node-list-title span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;}
+.node-list-title small{display:block;color:var(--muted);font-size:10px;}
+.node-list-row.drop-before{box-shadow:inset 0 2px var(--accent);}
+.node-list-row.drop-after{box-shadow:inset 0 -2px var(--accent);}

@@ -20,6 +20,7 @@ Project、ScenarioNode、ScenarioEdge、NodeTypeDefinition、FieldDefinition、S
 - フィールド値は判別可能なunionで型付けし、Field IDをキーに保存。タイプ変更やフィールド非表示で残存値を削除しない。タイプ定義にない旧フィールド値も保持する。
 - フィールド順序は定義配列、選択肢はIDと名称。後続の削除UIでは確認と退避を行う。
 - ノードのpositionとOutlineItemのparentId/orderは別管理。同じノードを複数OutlineItemから参照できる。未登録ノードも維持する。
+- グラフのノード一覧はparentGroupIdからツリー表示する。兄弟ノードの一覧順はSnapshot.nodes配列順で保持し、並べ替えは同じ親の配列スロットだけを入れ替える。グラフ座標とアウトライン順には影響せず、グループの子階層も維持する。展開状態は表示設定として扱う。
 - エッジは多重接続・循環を許可。親グループとアウトラインの階層循環は禁止。
 - 本文の保存形式は独自のContent union。Tiptapの内部JSONを正本にはしない。Phase 3で双方向アダプターを実装し、非対応要素を破壊的に落とさない往復試験を追加する。
 - エンティティ参照はentityIdを常に保持し、aliasではaliasId、fixedでは固定表示文字列を追加する。本文の文字列置換は行わない。

@@ -37,6 +37,23 @@ export function moveNodes(draft: Snapshot, positions: Map<string, Point>) {
     if (position) { node.position = position; node.updatedAt = new Date().toISOString(); }
   }
 }
+/** Reorder a node among siblings in the tree list without changing group membership or graph coordinates. */
+export function reorderNode(draft: Snapshot, sourceId: string, targetId: string, before: boolean) {
+  if (sourceId === targetId) return;
+  const source = draft.nodes.find(node => node.id === sourceId);
+  const target = draft.nodes.find(node => node.id === targetId);
+  if (!source || !target) throw new Error('並べ替えるノードが見つかりません');
+  if (source.parentGroupId !== target.parentGroupId) throw new Error('ノードは同じ階層内で並べ替えてください');
+  const siblings = draft.nodes.filter(node => node.parentGroupId === source.parentGroupId);
+  const orderedIds = siblings.filter(node => node.id !== sourceId).map(node => node.id);
+  const targetIndex = orderedIds.indexOf(targetId);
+  orderedIds.splice(targetIndex + (before ? 0 : 1), 0, sourceId);
+  const ordered = new Map(orderedIds.map((id, index) => [id, index]));
+  const siblingPositions = new Map(siblings.map((node, index) => [node.id, index]));
+  const replacements = [...siblings].sort((a, b) => ordered.get(a.id)! - ordered.get(b.id)!);
+  let replacementIndex = 0;
+  draft.nodes = draft.nodes.map(node => siblingPositions.has(node.id) ? replacements[replacementIndex++] : node);
+}
 export function resizeNode(draft: Snapshot, id: string, position: Point, size: { width: number; height: number }) {
   const node = draft.nodes.find(n => n.id === id);
   if (!node) throw new Error('ノードが見つかりません');
