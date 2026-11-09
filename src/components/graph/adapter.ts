@@ -1,9 +1,24 @@
 import { MarkerType, type Node, type Edge } from '@xyflow/react';
-import { type Snapshot } from '../../domain/schema';
+import { type Content, type Snapshot } from '../../domain/schema';
+import { resolveReference } from '../../domain/project';
 
-export type CardNode = Node<{ title: string; typeName: string; color: string; tags: string[]; children: number; match: boolean }, 'scenario'>;
+export type CardNode = Node<{ title: string; preview: string; typeName: string; color: string; tags: string[]; children: number; match: boolean }, 'scenario'>;
 export type ScenarioFlowEdge = Edge<{ lane: number }, 'scenario'>;
 export const edgeColors = { progression: '#52745e', conditional: '#b57d37', reference: '#628aa5', dependency: '#92739c' };
+function plainText(content: Content[], snapshot: Snapshot): string {
+  return content.map(item => {
+    if (item.kind === 'text') return item.text;
+    if (item.kind === 'entity') return resolveReference(item.reference, snapshot).text;
+    if (item.kind === 'nodeLink') return item.text;
+    return plainText(item.children, snapshot);
+  }).join('');
+}
+function previewText(content: Content[], snapshot: Snapshot): string {
+  const text = content.map(item => item.kind === 'block' ? plainText(item.children, snapshot) : plainText([item], snapshot)).filter(Boolean).join(' ');
+  const compact = text.replace(/\s+/g, ' ').trim();
+  const chars = Array.from(compact);
+  return chars.length > 180 ? `${chars.slice(0, 180).join('')}…` : compact;
+}
 export function toFlowNodes(data: Snapshot, matches: Set<string>, selected: Set<string>): CardNode[] {
   const byId = new Map(data.nodes.map(n => [n.id, n]));
   const included = new Set(matches);
@@ -12,13 +27,18 @@ export function toFlowNodes(data: Snapshot, matches: Set<string>, selected: Set<
   const sizes = new Map<string, { width: number; height: number }>();
   for (const n of [...data.nodes].sort((a,b) => depth(b.id) - depth(a.id))) {
     const children = data.nodes.filter(c => c.parentGroupId === n.id);
-    sizes.set(n.id, { width: Math.max(220, ...children.map(c => c.position.x - n.position.x + (sizes.get(c.id)?.width ?? 220) + 32)), height: Math.max(100, ...children.map(c => c.position.y - n.position.y + (sizes.get(c.id)?.height ?? 100) + 32)) });
+    const doc = data.documents.find(d => d.id === n.documentId);
+    const preview = doc ? previewText(doc.content, data) : '';
+    const previewLines = Math.min(4, Math.ceil(Array.from(preview).length / 28));
+    const ownHeight = Math.max(100, 72 + previewLines * 20 + (n.tagIds.length ? 18 : 0));
+    sizes.set(n.id, { width: Math.max(260, ...children.map(c => c.position.x - n.position.x + (sizes.get(c.id)?.width ?? 260) + 32)), height: Math.max(ownHeight, ...children.map(c => c.position.y - n.position.y + (sizes.get(c.id)?.height ?? 100) + 32)) });
   }
   return [...data.nodes].sort((a,b) => depth(a.id) - depth(b.id)).map(n => {
     const parent = n.parentGroupId ? byId.get(n.parentGroupId) : undefined;
     const type = data.nodeTypes.find(t => t.id === n.typeId)!;
     const children = data.nodes.filter(c => c.parentGroupId === n.id).length;
-    return { id: n.id, type: 'scenario', position: parent ? { x: n.position.x - parent.position.x, y: n.position.y - parent.position.y } : { ...n.position }, parentId: parent?.id, selected: selected.has(n.id), hidden: !included.has(n.id), dragHandle: '.node-heading', style: sizes.get(n.id), data: { title: n.title, typeName: type.name, color: type.color, tags: n.tagIds.map(id => data.tags.find(t => t.id === id)?.name ?? ''), children, match: matches.has(n.id) } };
+    const doc = data.documents.find(d => d.id === n.documentId);
+    return { id: n.id, type: 'scenario', position: parent ? { x: n.position.x - parent.position.x, y: n.position.y - parent.position.y } : { ...n.position }, parentId: parent?.id, selected: selected.has(n.id), hidden: !included.has(n.id), dragHandle: '.node-heading', style: sizes.get(n.id), data: { title: n.title, preview: doc ? previewText(doc.content, data) : '', typeName: type.name, color: type.color, tags: n.tagIds.map(id => data.tags.find(t => t.id === id)?.name ?? ''), children, match: matches.has(n.id) } };
   });
 }
 export function toFlowEdges(data: Snapshot, matches: Set<string>, kinds: Set<string>, selectedId?: string): ScenarioFlowEdge[] {

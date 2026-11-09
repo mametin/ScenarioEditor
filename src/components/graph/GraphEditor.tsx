@@ -11,6 +11,7 @@ function NodeCard({ data, selected }: NodeProps<CardNode>) {
   return <div className={`node-card ${data.children ? 'group-card' : ''} ${selected ? 'chosen' : ''} ${data.match ? '' : 'context-node'}`} style={{ '--node-color': data.color } as CSSProperties}>
     <Handle type="target" position={Position.Left} aria-label="接続先" />
     <div className="node-heading"><small>{data.typeName}{data.children > 0 && ` · グループ ${data.children}`}</small><strong>{data.title || '無題'}</strong></div>
+    {data.preview && <p className="node-preview">{data.preview}</p>}
     {data.tags.length > 0 && <div className="node-tags">{data.tags.join(' · ')}</div>}
     <Handle type="source" position={Position.Right} aria-label="接続元" />
   </div>;
