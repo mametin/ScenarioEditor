@@ -141,7 +141,7 @@ export default function Home() {
     {active && view !== 'overview' && <div>
       <div className="graph-savebar"><span className={status === 'error' ? 'save-error' : ''} role="status">{labels[status]}</span><span>{online ? 'オンライン' : 'オフライン'}</span><button onClick={download}>JSONバックアップ</button><span className="sync-label">GitHub同期：未実装</span></div>
       {error && <div className="error" role="alert">{error}<button onClick={() => void saver.current?.flush()}>保存を再試行</button><button onClick={download}>未保存JSONを退避</button></div>}
-      {view === 'graph' && <GraphEditor key={`${active.project.id}-${editorSession}`} snapshot={active} disabled={busy} onWriteNode={id => { setOpenedNode(id); setView("writing"); }} onChange={data => { current.current = data; setActive(data); saver.current!.enqueue(data); }}/>}
+      {view === 'graph' && <GraphEditor key={`${active.project.id}-${editorSession}`} snapshot={active} disabled={busy} onWriteNode={id => { setOpenedNode(id); setView("writing"); }} onOpenEntity={id => { setOpenedEntity(id); setView('entities'); }} onChange={data => { current.current = data; setActive(data); saver.current!.enqueue(data); }}/>}
       {view !== 'graph' && <div className="phase-three-panel">{PhaseThreeContent()}</div>}
     </div>}
     <footer className="bottom"><span>TRPG SCENARIO EDITOR</span><span>あなたの物語は、あなたの手元に。</span></footer>

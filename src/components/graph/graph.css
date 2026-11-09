@@ -27,3 +27,7 @@
 .node-list-title small{display:block;color:var(--muted);font-size:12px;}
 .node-list-row.drop-before{box-shadow:inset 0 2px var(--accent);}
 .node-list-row.drop-after{box-shadow:inset 0 -2px var(--accent);}
+.graph-body-edit{border:1px solid var(--line);border-radius:6px;padding:8px;margin:14px 0 20px;}
+.graph-body-edit>summary{padding:4px;}
+.graph-body-edit .scenario-editor{margin-top:8px;}
+.graph-body-edit .scenario-prose{min-height:180px;padding:12px;}
