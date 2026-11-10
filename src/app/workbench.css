@@ -4,7 +4,7 @@
   --surface-toolbar: color-mix(in srgb, var(--paper) 88%, var(--bg));
 }
 
-html body { font-size: 15px; line-height: 1.55; background: var(--bg); }
+html body { font-family: Consolas, 'Courier New', monospace; font-size: 15px; line-height: 1.55; background: var(--bg); }
 html button, html .import { border-radius: var(--ui-radius); box-shadow: none; }
 html button:not(:disabled):hover { transition: background-color .12s ease, border-color .12s ease; }
 html :focus-visible { outline-color: var(--accent); }
@@ -95,10 +95,11 @@ html :focus-visible { outline-color: var(--accent); }
 .app.has-project > .workspace-surface > .graph-savebar button { padding: 3px 8px; font-size: 11px; }
 .app.has-project > .workspace-surface > .error { z-index: 2; flex: none; margin: 6px 10px 0; padding: 8px 12px; }
 .app.has-project > .workspace-surface > .phase-three-panel { flex: 1; min-width: 0; min-height: 0; max-width: none; margin: 0; padding: 12px; overflow: auto; }
-.app.has-project > .workspace-surface > .graph-workbench { flex: 1; min-width: 0; min-height: 0; height: auto; border-left: 1px solid var(--line); }
+.app.has-project > .workspace-surface > .graph-workbench { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; height: auto; border-left: 1px solid var(--line); }
 .app.has-project > .workspace-surface > .graph-workbench .graph-toolbar { flex: none; min-height: 50px; padding: 8px 14px; }
 .app.has-project > .workspace-surface > .graph-workbench .graph-toolbar strong { font-size: 16px; }
 .app.has-project > .workspace-surface > .graph-workbench .graph-panes { flex: 1; min-height: 0; height: auto; }
+.app.has-project > .workspace-surface > .graph-workbench .graph-center { min-height: 0; }
 .app.has-project > .workspace-surface > .graph-workbench .graph-list { padding: 14px 10px; }
 .app.has-project > .workspace-surface > .graph-workbench .graph-inspector { padding: 16px; }
 .app.has-project > .workspace-surface > .graph-workbench .connection-tools { min-height: 44px; padding: 6px 10px; }
