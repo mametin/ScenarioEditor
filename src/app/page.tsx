@@ -16,6 +16,12 @@ const TagManager = dynamic(() => import('../components/types/TagManager'), { ssr
 const OutlineWorkspace = dynamic(() => import('../components/OutlineWorkspace'), { ssr: false });
 
 const labels = { saved: 'ローカル保存済み', pending: '未保存の変更あり', saving: '保存中…', error: '保存できませんでした' };
+const screens = [
+  { id: 'overview', label: '概要', icon: '◫' }, { id: 'graph', label: 'グラフ', icon: '⠿' },
+  { id: 'writing', label: '執筆', icon: '¶' }, { id: 'entities', label: '設定資料', icon: '◈' },
+  { id: 'outline', label: 'アウトライン', icon: '☷' }, { id: 'types', label: 'タイプ', icon: '▤' }, { id: 'tags', label: 'タグ', icon: '#' },
+] as const;
+const screenLabels = Object.fromEntries(screens.map(screen => [screen.id, screen.label])) as Record<(typeof screens)[number]['id'], string>;
 function darkenHex(hex: string, amount: number) { return `#${[1, 3, 5].map(index => Math.round(parseInt(hex.slice(index, index + 2), 16) * (1 - amount)).toString(16).padStart(2, '0')).join('')}`; }
 export default function Home() {
   const [projects, setProjects] = useState<Stored[]>([]);
@@ -118,8 +124,9 @@ export default function Home() {
     if (view === 'outline') return <OutlineWorkspace snapshot={active} onChange={saveEditor}/>;
     return null;
   }
-  return <div className={view === 'graph' ? 'app graph-mode' : focus ? 'app focus' : 'app'}>
-    <header className="topbar"><a className="brand" href="/">◈ <span>SCENARIO <b>EDITOR</b></span></a><span className="phase">PHASE 04 / アウトライン・出力</span><div className="view-switch"><button aria-pressed={view === 'overview'} onClick={() => setView('overview')}>概要・保存</button><button disabled={!active} aria-pressed={view === 'graph'} onClick={() => setView('graph')}>グラフ</button>{([["writing","執筆"],["entities","設定資料"],["types","タイプ"],["tags","タグ"],["outline","アウトライン・出力"]] as const).map(([id,label]) => <button key={id} disabled={!active} aria-pressed={view === id} onClick={() => setView(id)}>{label}</button>)}</div><div className="appearance-controls">{view === 'overview' && <button className="focus-toggle" onClick={() => setFocus(!focus)}>{focus ? '通常表示に戻る' : '集中表示'}</button>}<details className="appearance-settings"><summary>外観</summary><div className="appearance-picker-list"><ColorPicker label="テーマカラー" value={themeColor} onChange={setThemeColor}/><ColorPicker label="背景色" value={backgroundColor} onChange={setBackgroundColor}/></div></details><button className="theme-toggle" aria-label={theme === 'dark' ? 'ライトモードに切り替え' : 'ダークモードに切り替え'} aria-pressed={theme === 'dark'} onClick={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? '☀ ライト' : '☾ ダーク'}</button></div></header>
+  return <div className={`app${view === 'graph' ? ' graph-mode' : ''}${focus ? ' focus' : ''}${active ? ' has-project' : ''}${active && view !== 'overview' ? ' workspace-mode' : ''}`}>
+    <header className="topbar"><a className="brand" href="/" aria-label="Scenario Editor ホーム">◈ <span>SCENARIO <b>EDITOR</b></span></a><div className="topbar-context"><strong>{active?.project.title || 'Scenario Editor'}</strong><span>{active ? ` / ${screenLabels[view]}` : ' / シナリオ執筆環境'}</span></div><div className="appearance-controls">{view === 'overview' && <button className="focus-toggle" onClick={() => setFocus(!focus)}>{focus ? '通常表示' : '集中表示'}</button>}<details className="appearance-settings"><summary>外観</summary><div className="appearance-picker-list"><ColorPicker label="テーマカラー" value={themeColor} onChange={setThemeColor}/><ColorPicker label="背景色" value={backgroundColor} onChange={setBackgroundColor}/></div></details><button className="theme-toggle" aria-label={theme === 'dark' ? 'ライトモードに切り替え' : 'ダークモードに切り替え'} aria-pressed={theme === 'dark'} onClick={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? '☀ ライト' : '☾ ダーク'}</button></div></header>
+    {active && <nav className="activity-bar" aria-label="作業画面">{screens.map(screen => <button key={screen.id} type="button" title={screen.label} aria-label={screen.label} aria-current={view === screen.id ? 'page' : undefined} disabled={screen.id !== 'overview' && !active} onClick={() => setView(screen.id)}><span aria-hidden="true">{screen.icon}</span><small>{screen.label}</small></button>)}</nav>}
     <div className="workspace" hidden={view !== 'overview'} style={view !== 'overview' ? { display: 'none' } : undefined}>
       <aside className="sidebar"><div className="eyebrow">YOUR WORKSPACE</div><h2>シナリオ</h2><button className="primary wide" disabled={!ready || busy} onClick={() => void run(async () => { await settle(); const row = await repo.current!.save(createProject(), 0); await refresh(); select(row); })}>＋ 新規プロジェクト</button>
         <nav aria-label="プロジェクト一覧">{projects.map(row => <button className={row.id === active?.project.id ? 'project selected' : 'project'} key={row.id} disabled={busy} onClick={() => void run(async () => { await settle(); const latest = await repo.current!.load(row.id); if (latest) select(latest); await refresh(); })}><span>▤</span><span>{row.id === active?.project.id ? active.project.title || '無題' : row.snapshot.project.title || '無題'}<small>{new Date(row.savedAt).toLocaleDateString('ja-JP')}</small></span></button>)}</nav>
@@ -138,14 +145,14 @@ export default function Home() {
         <div className="roadmap"><div className="eyebrow">DEVELOPMENT NOTES</div><h3>執筆環境を、少しずつ。</h3><p>プロジェクト保存とノードグラフを利用できます。</p><ol><li className="done">ローカル保存基盤</li><li className="done">ノードグラフ</li><li>本文・設定資料</li><li>アウトライン・出力</li><li>GitHub連携</li><li>モバイル・PWA</li></ol></div>
       </aside>
     </div>
-    {active && view !== 'overview' && <div>
+    {active && view !== 'overview' && <div className="workspace-surface">
       <div className="graph-savebar"><span className={status === 'error' ? 'save-error' : ''} role="status">{labels[status]}</span><span>{online ? 'オンライン' : 'オフライン'}</span><button onClick={download}>JSONバックアップ</button></div>
       {error && <div className="error" role="alert">{error}<button onClick={() => void saver.current?.flush()}>保存を再試行</button><button onClick={download}>未保存JSONを退避</button></div>}
       {view === 'graph' && <GraphEditor key={`${active.project.id}-${editorSession}`} snapshot={active} disabled={busy} onWriteNode={id => { setOpenedNode(id); setView("writing"); }} onOpenEntity={id => { setOpenedEntity(id); setView('entities'); }} onChange={data => { current.current = data; setActive(data); saver.current!.enqueue(data); }}/>}
       {view !== 'graph' && <div className="phase-three-panel">{PhaseThreeContent()}</div>}
     </div>}
     <footer className="bottom"><span>TRPG SCENARIO EDITOR</span><span>あなたの物語は、あなたの手元に。</span></footer>
-    <nav className="mobile-primary-nav" aria-label="メイン画面">{[["writing","執筆"],["graph","グラフ"],["entities","設定資料"],["outline","アウトライン"]].map(([id,label]) => <button key={id} disabled={!active} aria-current={view === id ? 'page' : undefined} onClick={() => setView(id as typeof view)}>{label}</button>)}</nav>
+    <nav className="mobile-primary-nav" aria-label="メイン画面">{screens.map(screen => <button key={screen.id} disabled={screen.id !== 'overview' && !active} aria-current={view === screen.id ? 'page' : undefined} aria-label={screen.label} title={screen.label} onClick={() => setView(screen.id)}><span aria-hidden="true">{screen.icon}</span><small>{screen.label}</small></button>)}</nav>
   </div>;
 }
 
