@@ -8,6 +8,7 @@ import { addNodesToGroup, changeGraph, connect, createNode, deleteNodes, duplica
 import { toFlowEdges, toFlowNodes, type CardNode, type ResizeNodeEnd, type ResizeNodeStart, type ScenarioFlowEdge } from './adapter';
 import ColorPicker from '../ColorPicker';
 import RichTextEditor from '../editor/RichTextEditor';
+import FloatingPanel, { type PanelPosition } from './FloatingPanel';
 
 function NodeCard({ id, data, selected }: NodeProps<CardNode>) {
   return <div className={`node-card ${data.children ? 'group-card' : ''} ${selected ? 'chosen' : ''} ${data.match ? '' : 'context-node'}`} style={{ '--node-color': data.color } as CSSProperties}>
@@ -15,7 +16,7 @@ function NodeCard({ id, data, selected }: NodeProps<CardNode>) {
     <Handle type="target" position={Position.Left} aria-label="接続先" />
     <div className="node-content">
       <div className="node-heading"><small>{data.typeName}</small><strong>{data.title || '無題'}</strong></div>
-      {data.preview && <p className="node-preview">{data.preview}</p>}
+      {data.preview && <p className="node-preview">{data.previewParts.map((part, index) => part.kind === 'break' ? <br key={index}/> : part.kind === 'entity' ? <span key={index} className="entity-preview-reference" title={part.tooltip}>{part.text}</span> : <span key={index}>{part.text}</span>)}</p>}
       {data.tags.length > 0 && <div className="node-tags">{data.tags.join(' · ')}</div>}
     </div>
     <Handle type="source" position={Position.Right} aria-label="接続元" />
@@ -50,6 +51,10 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
   const history = useRef(new GraphHistory());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [interactionMode, setInteractionMode] = useState<'pan' | 'select'>('pan');
+  const [showToolPanel, setShowToolPanel] = useState(true);
+  const [editorPanelOpen, setEditorPanelOpen] = useState(false);
+  const [panelPositions, setPanelPositions] = useState<{ tools: PanelPosition; editor: PanelPosition }>({ tools: { x: 300, y: 210 }, editor: { x: 650, y: 210 } });
+  const [panelOrder, setPanelOrder] = useState<string[]>(['tools', 'editor']);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [dropTarget, setDropTarget] = useState<{ id: string; before: boolean } | null>(null);
   const [draggedNodeId, setDraggedNodeId] = useState<string>();
@@ -63,6 +68,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
   const [mobileTab, setMobileTab] = useState('graph');
   const [groupColors, setGroupColors] = useState<Record<string, string>>({});
   const groupColorKey = `scenario-editor-group-colors:${snapshot.project.id}`;
+  const panelPositionKey = `scenario-editor-floating-panels:${snapshot.project.id}`;
   const flow = useRef<ReactFlowInstance<CardNode, ScenarioFlowEdge> | null>(null);
   const dragging = useRef(false);
   const matches = useMemo(() => filterNodes(snapshot, query, typeFilter, tagFilter, tagMode), [snapshot, query, typeFilter, tagFilter, tagMode]);
@@ -79,6 +85,21 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
       setGroupColors(valid);
     } catch { setGroupColors({}); }
   }, [groupColorKey]);
+  useEffect(() => {
+    try {
+      const compact = window.innerWidth <= 700;
+      const defaults = compact ? { tools: { x: 12, y: 150 }, editor: { x: 12, y: 210 } } : { tools: { x: 300, y: 210 }, editor: { x: 650, y: 210 } };
+      setPanelPositions(defaults);
+      const value: unknown = JSON.parse(localStorage.getItem(panelPositionKey) ?? 'null');
+      if (!value || typeof value !== 'object') return;
+      const record = value as Record<string, unknown>;
+      const read = (key: string, fallback: PanelPosition): PanelPosition => {
+        const point = record[key] as Record<string, unknown> | undefined;
+        return point && Number.isFinite(point.x) && Number.isFinite(point.y) ? { x: Number(point.x), y: Number(point.y) } : fallback;
+      };
+      setPanelPositions({ tools: read('tools', defaults.tools), editor: read('editor', defaults.editor) });
+    } catch { /* Keep the default panel positions when local preferences are unavailable. */ }
+  }, [panelPositionKey]);
   const handleResizeStart = useCallback<ResizeNodeStart>(id => resizeStart.current(id), []);
   const handleResizeEnd = useCallback<ResizeNodeEnd>((id, params) => resizeEnd.current(id, params), []);
   useEffect(() => { if (!dragging.current) setNodes(toFlowNodes(snapshot, matches, selected, groupColors, handleResizeStart, handleResizeEnd, !disabled)); }, [snapshot, matches, selected, groupColors, handleResizeStart, handleResizeEnd, disabled]);
@@ -97,6 +118,14 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
       return next;
     });
   }
+  function movePanel(name: 'tools' | 'editor', position: PanelPosition) {
+    setPanelPositions(current => {
+      const next = { ...current, [name]: position };
+      try { localStorage.setItem(panelPositionKey, JSON.stringify(next)); } catch { /* Panel positions are a convenience; editing remains available. */ }
+      return next;
+    });
+  }
+  function activatePanel(name: 'tools' | 'editor') { setPanelOrder(current => [...current.filter(value => value !== name), name]); }
 
   function commit(change: (draft: Snapshot) => void) {
     if (disabled) return;
@@ -193,7 +222,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
   }
   return <section className={`graph-workbench mobile-${mobileTab} ${connecting ? 'is-connecting' : ''} ${interactionMode === 'pan' ? 'is-pan-mode' : 'is-select-mode'}`} style={{ '--left-width': left ? `${leftWidth}px` : '0px', '--right-width': right ? `${rightWidth}px` : '0px' } as CSSProperties}
     onKeyDown={e => { if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"]')) return; if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); travel(e.shiftKey ? 'redo' : 'undo'); return; } if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return; const key = e.key.toLowerCase(); if (key === 'h' || key === 'v') { e.preventDefault(); setInteractionMode(key === 'h' ? 'pan' : 'select'); } }}>
-    <div className="graph-toolbar"><div><span className="eyebrow">SCENARIO MAP</span><strong>{snapshot.project.title || '無題のシナリオ'}</strong></div><div className="graph-actions"><button disabled={disabled} className="primary" onClick={addNode}>＋ ノード</button><button disabled={!history.current.canUndo || disabled} onClick={() => travel('undo')}>↶ Undo</button><button disabled={!history.current.canRedo || disabled} onClick={() => travel('redo')}>↷ Redo</button><div className="graph-interaction-switch" role="group" aria-label="グラフ操作モード"><button type="button" aria-pressed={interactionMode === 'pan'} aria-keyshortcuts="H" title="手のひらモード (H)" onClick={() => setInteractionMode('pan')}>✋ 手のひら <kbd>H</kbd></button><button type="button" aria-pressed={interactionMode === 'select'} aria-keyshortcuts="V" title="選択モード (V)" onClick={() => setInteractionMode('select')}>↖ 選択 <kbd>V</kbd></button></div><button onClick={() => setLeft(!left)} aria-pressed={left}>一覧</button><button onClick={() => setRight(!right)} aria-pressed={right}>詳細</button></div></div>
+    <div className="graph-toolbar"><div><span className="eyebrow">SCENARIO MAP</span><strong>{snapshot.project.title || '無題のシナリオ'}</strong></div><div className="graph-actions"><button disabled={disabled} className="primary" onClick={addNode}>＋ ノード</button><button disabled={!history.current.canUndo || disabled} onClick={() => travel('undo')}>↶ Undo</button><button disabled={!history.current.canRedo || disabled} onClick={() => travel('redo')}>↷ Redo</button><button type="button" aria-pressed={showToolPanel} onClick={() => setShowToolPanel(value => !value)}>ツール</button><button type="button" disabled={!node} aria-pressed={editorPanelOpen} onClick={() => setEditorPanelOpen(value => !value)}>本文パネル</button><button onClick={() => setLeft(!left)} aria-pressed={left}>一覧</button><button onClick={() => setRight(!right)} aria-pressed={right}>詳細</button></div></div>
     <nav className="graph-mobile-tabs" aria-label="グラフの画面">{[['list','ノード一覧'],['graph','グラフ'],['details','編集']].map(([id,label]) => <button key={id} aria-pressed={mobileTab === id} onClick={() => setMobileTab(id)}>{label}</button>)}</nav>
     {error && <div className="graph-error" role="alert">{error}</div>}
     <div className="graph-panes">
@@ -230,7 +259,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
       {right && <ResizeHandle side="right" width={rightWidth} onResize={setRightWidth}/>}
       <aside className={`graph-inspector ${right ? '' : 'pane-collapsed'}`}><div className="eyebrow">INSPECTOR</div>
         {edge ? <><h2>接続を編集</h2><label>接続元<select value={edge.sourceId} disabled={disabled} onChange={e => patchEdge({ sourceId: e.target.value })}>{snapshot.nodes.map(n => <option key={n.id} value={n.id}>{n.title || '無題'}</option>)}</select></label><label>接続先<select value={edge.targetId} disabled={disabled} onChange={e => patchEdge({ targetId: e.target.value })}>{snapshot.nodes.map(n => <option key={n.id} value={n.id}>{n.title || '無題'}</option>)}</select></label><label>種類<select value={edge.kind} disabled={disabled} onChange={e => patchEdge({ kind: e.target.value as ScenarioEdge['kind'] })}>{Object.entries(edgeKinds).map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></label><label>ラベル<input value={edge.label} disabled={disabled} onChange={e => patchEdge({ label: e.target.value })}/></label><label>条件テキスト<textarea value={edge.condition} disabled={disabled} onChange={e => patchEdge({ condition: e.target.value })}/></label><p className="muted">条件の自動評価は行いません。</p><button className="danger wide" disabled={disabled} onClick={removeSelection}>接続を削除</button></> : node ? <><h2>ノードを編集</h2><p className="muted">選択中のノードは、四隅または辺の中央をドラッグしてサイズを変更できます。</p>{selected.size > 1 && <p>{selected.size}件選択中 · 項目編集は先頭のノード</p>}<label>ノードタイトル<input value={node.title} disabled={disabled} onChange={e => commit(d => updateNode(d, node.id, { title: e.target.value }))}/></label><label>ノードタイプ<select value={node.typeId} disabled={disabled} onChange={e => commit(d => updateNode(d, node.id, { typeId: e.target.value }))}>{snapshot.nodeTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
-          <details className="graph-body-edit"><summary>本文をグラフ上で編集</summary><RichTextEditor key={node.documentId} snapshot={snapshot} documentId={node.documentId} onChange={onChange} onOpenEntity={onOpenEntity} onOpenNode={id => selectNode(id)} disabled={disabled}/></details>
+          <button className="wide" type="button" onClick={() => setEditorPanelOpen(true)}>本文を独立パネルで編集</button>
           {snapshot.nodes.some(item => item.parentGroupId === node.id) && <div className="group-color-setting"><ColorPicker label="グループ色" value={groupColors[node.id] ?? snapshot.nodeTypes.find(t => t.id === node.typeId)?.color ?? '#657e6d'} onChange={color => setGroupColor(node.id, color)}/><p className="muted">この色はプロジェクトごとにこのブラウザへ保存されます。</p><button type="button" onClick={() => setGroupColor(node.id)}>タイプ色に戻す</button></div>}
           <fieldset><legend>タグ</legend>{snapshot.tags.map(t => <label className="check" key={t.id}><input type="checkbox" checked={node.tagIds.includes(t.id)} disabled={disabled} onChange={e => commit(d => updateNode(d, node.id, { tagIds: e.target.checked ? [...node.tagIds,t.id] : node.tagIds.filter(id => id !== t.id) }))}/>{t.name}</label>)}<div className="new-tag"><input aria-label="新しいタグ名" value={newTag} onChange={e => setNewTag(e.target.value)} placeholder="タグ名"/><button disabled={!newTag.trim() || disabled} onClick={() => { commit(d => { const tag = d.tags.find(t => t.name === newTag.trim()) ?? { id: crypto.randomUUID(), name: newTag.trim(), color: '#657e6d' }; if (!d.tags.some(t => t.id === tag.id)) d.tags.push(tag); const n = d.nodes.find(n => n.id === node.id)!; if (!n.tagIds.includes(tag.id)) n.tagIds.push(tag.id); }); setNewTag(''); }}>追加</button></div></fieldset>
           <div className="coordinate-fields">{(['x','y'] as const).map(axis => <label key={axis}>{axis.toUpperCase()}<input type="number" aria-label={`${axis.toUpperCase()}座標`} value={Math.round(node.position[axis] * 100)/100} disabled={disabled} onChange={e => { const value = e.target.valueAsNumber; if (Number.isFinite(value)) commit(d => moveNodes(d, new Map([[node.id, { ...node.position, [axis]: value }]]))); }}/></label>)}</div>
@@ -242,6 +271,8 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
         </> : <div className="inspector-empty"><h2>物語の一片を選択</h2><p>ノードや接続を選ぶと、ここで編集できます。</p><p>チェックボックスで複数のノードを選択してグループ化できます。</p></div>}
       </aside>
     </div>
+    {showToolPanel && <FloatingPanel title="グラフツール" className="graph-tool-panel" position={panelPositions.tools} onPositionChange={position => movePanel('tools', position)} onClose={() => setShowToolPanel(false)} onActivate={() => activatePanel('tools')} zIndex={40 + panelOrder.indexOf('tools')}><div className="graph-tool-buttons" role="group" aria-label="グラフ操作モード"><button type="button" aria-pressed={interactionMode === 'pan'} aria-keyshortcuts="H" title="手のひらモード (H)" onClick={() => setInteractionMode('pan')}>✋ 手のひら <kbd>H</kbd></button><button type="button" aria-pressed={interactionMode === 'select'} aria-keyshortcuts="V" title="選択モード (V)" onClick={() => setInteractionMode('select')}>↖ 選択 <kbd>V</kbd></button></div><p>H / V キーでも切り替えられます。</p></FloatingPanel>}
+    {editorPanelOpen && node && <FloatingPanel title={`本文：${node.title || '無題'}`} className="graph-text-panel" position={panelPositions.editor} onPositionChange={position => movePanel('editor', position)} onClose={() => setEditorPanelOpen(false)} onActivate={() => activatePanel('editor')} zIndex={40 + panelOrder.indexOf('editor')}><RichTextEditor key={node.documentId} snapshot={snapshot} documentId={node.documentId} onChange={onChange} onOpenEntity={onOpenEntity} onOpenNode={selectNode} disabled={disabled}/></FloatingPanel>}
   </section>;
 }
 

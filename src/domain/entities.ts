@@ -8,6 +8,16 @@ export function createEntity(draft: Snapshot, category = 'NPC'): string {
   draft.entities.push({ id, category, name: '新しい設定資料', aliases: [], descriptionDocumentId: documentId, fields: {}, tagIds: [], createdAt: now, updatedAt: now }); return id;
 }
 export function updateEntity(draft: Snapshot, id: string, patch: Partial<Pick<ScenarioEntity, 'name' | 'category' | 'aliases' | 'tagIds'>>) { const e = draft.entities.find(e => e.id === id); if (!e) throw new Error('設定資料が見つかりません'); Object.assign(e, patch, { updatedAt: new Date().toISOString() }); }
+/** Reorder the entity collection without changing IDs or any references to them. */
+export function reorderEntity(draft: Snapshot, sourceId: string, targetId: string, before: boolean) {
+  if (sourceId === targetId) return;
+  const sourceIndex = draft.entities.findIndex(entity => entity.id === sourceId);
+  const targetIndex = draft.entities.findIndex(entity => entity.id === targetId);
+  if (sourceIndex < 0 || targetIndex < 0) throw new Error('並べ替える設定資料が見つかりません');
+  const [source] = draft.entities.splice(sourceIndex, 1);
+  const adjustedTarget = draft.entities.findIndex(entity => entity.id === targetId);
+  draft.entities.splice(adjustedTarget + (before ? 0 : 1), 0, source);
+}
 /** Retain documents and ID references so missing targets can be diagnosed and restored. */
 export function deleteEntity(draft: Snapshot, id: string) { draft.entities = draft.entities.filter(e => e.id !== id); }
 export type ReferenceUsage = { key: string; ownerKind: 'node' | 'entity' | 'document'; ownerId: string; ownerName: string; documentId?: string; reference: EntityReference; broken: boolean; text: string };

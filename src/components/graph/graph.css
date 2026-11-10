@@ -48,6 +48,23 @@
 .node-heading small{font-size:16px;}
 .node-heading strong{font-size:20px;}
 .node-preview{font-size:18px;line-height:1.35;}
+.entity-preview-reference{border-bottom:1px dotted currentColor;cursor:help;}
+.graph-floating-panel{position:fixed;width:min(360px,calc(100vw - 16px));max-height:calc(100dvh - 16px);display:flex;flex-direction:column;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 14px 42px #1115;overflow:hidden;}
+.graph-floating-panel__header{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;padding:7px 10px 7px 14px;background:var(--panel, #f0f3ed);border-bottom:1px solid var(--line);cursor:grab;touch-action:none;user-select:none;}
+.graph-floating-panel__header:active{cursor:grabbing;}
+.graph-floating-panel__header strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:600;}
+.graph-floating-panel__header button{width:32px;height:30px;padding:0;font-size:20px;line-height:1;}
+.graph-floating-panel__body{padding:12px;overflow:auto;overscroll-behavior:contain;}
+.graph-tool-panel{width:min(245px,calc(100vw - 16px));}
+.graph-tool-buttons{display:flex;flex-direction:column;gap:8px;}
+.graph-tool-buttons button{display:flex;justify-content:space-between;align-items:center;text-align:left;width:100%;}
+.graph-tool-buttons button[aria-pressed=true]{background:var(--accent);color:white;border-color:var(--accent);}
+.graph-tool-buttons kbd{border:1px solid currentColor;border-radius:4px;padding:1px 6px;font:inherit;font-size:12px;}
+.graph-tool-panel p{margin:10px 2px 0;font-size:12px;color:var(--muted);}
+.graph-text-panel{width:min(680px,calc(100vw - 16px));}
+.graph-text-panel .scenario-editor{overflow:visible;}
+.graph-text-panel .scenario-prose{min-height:220px;max-height:55dvh;overflow:auto;}
+@media(max-width:700px){.graph-floating-panel{max-height:calc(100dvh - 12px);}.graph-text-panel .editor-tools button,.graph-text-panel .editor-tools select{min-height:38px;padding:5px 7px;font-size:13px;}.graph-text-panel .scenario-prose{max-height:45dvh;min-height:160px;padding:14px;}}
 .node-tags{font-size:16px;}
 .node-list-title span{font-size:16px;}
 .node-list-title small{font-size:14px;}

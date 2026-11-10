@@ -4,7 +4,8 @@ import { resolveReference } from '../../domain/project';
 
 export type ResizeNodeEnd = (id: string, params: { x: number; y: number; width: number; height: number }) => void;
 export type ResizeNodeStart = (id: string) => void;
-export type CardNode = Node<{ title: string; preview: string; typeName: string; color: string; tags: string[]; children: number; match: boolean; minWidth: number; minHeight: number; resizable: boolean; onResizeStart?: ResizeNodeStart; onResizeEnd?: ResizeNodeEnd }, 'scenario'>;
+export type PreviewPart = { kind: 'text'; text: string } | { kind: 'break' } | { kind: 'entity'; text: string; tooltip: string };
+export type CardNode = Node<{ title: string; preview: string; previewParts: PreviewPart[]; typeName: string; color: string; tags: string[]; children: number; match: boolean; minWidth: number; minHeight: number; resizable: boolean; onResizeStart?: ResizeNodeStart; onResizeEnd?: ResizeNodeEnd }, 'scenario'>;
 export type ScenarioFlowEdge = Edge<{ lane: number }, 'scenario'>;
 export const edgeColors = { progression: '#52745e', conditional: '#b57d37', reference: '#628aa5', dependency: '#92739c' };
 function plainText(content: Content[], snapshot: Snapshot): string {
@@ -20,6 +21,28 @@ function plainText(content: Content[], snapshot: Snapshot): string {
 }
 function previewText(content: Content[], snapshot: Snapshot): string {
   return content.map(item => plainText([item], snapshot)).filter(Boolean).join('\n').replace(/\r\n?/g, '\n').trim();
+}
+function entityTooltip(entityId: string, snapshot: Snapshot): string {
+  const entity = snapshot.entities.find(item => item.id === entityId);
+  if (!entity) return 'リンク切れ：参照先の設定資料が見つかりません';
+  const description = snapshot.documents.find(item => item.id === entity.descriptionDocumentId);
+  const text = description ? plainText(description.content, snapshot).replace(/\s+/g, ' ').trim() : '';
+  const aliases = entity.aliases.map(alias => alias.name).filter(Boolean);
+  return [entity.name, entity.category, aliases.length ? `別名: ${aliases.join('、')}` : '', text ? `説明: ${text.slice(0, 360)}${text.length > 360 ? '…' : ''}` : ''].filter(Boolean).join('\n');
+}
+function previewParts(content: Content[], snapshot: Snapshot): PreviewPart[] {
+  const parts: PreviewPart[] = [];
+  const addText = (text: string) => { if (!text) return; const previous = parts.at(-1); if (previous?.kind === 'text') previous.text += text; else parts.push({ kind: 'text', text }); };
+  const visit = (items: Content[]) => items.forEach(item => {
+    if (item.kind === 'text') addText(item.text);
+    else if (item.kind === 'entity') { const entity = snapshot.entities.find(candidate => candidate.id === item.reference.entityId); const display = resolveReference(item.reference, snapshot); parts.push({ kind: 'entity', text: display.text, tooltip: entityTooltip(item.reference.entityId, snapshot) }); }
+    else if (item.kind === 'nodeLink') addText(item.text);
+    else if (item.style === 'divider') addText('────────');
+    else if (item.style === 'bulletList' || item.style === 'orderedList') item.children.forEach((child, index) => { if (index) parts.push({ kind: 'break' }); addText(item.style === 'bulletList' ? '• ' : `${index + 1}. `); visit([child]); });
+    else { if (parts.length) parts.push({ kind: 'break' }); visit(item.children); }
+  });
+  visit(content);
+  return parts;
 }
 export function toFlowNodes(data: Snapshot, matches: Set<string>, selected: Set<string>, groupColors: Record<string, string> = {}, onResizeStart?: ResizeNodeStart, onResizeEnd?: ResizeNodeEnd, resizable = true): CardNode[] {
   const byId = new Map(data.nodes.map(n => [n.id, n]));
@@ -43,7 +66,7 @@ export function toFlowNodes(data: Snapshot, matches: Set<string>, selected: Set<
     const type = data.nodeTypes.find(t => t.id === n.typeId)!;
     const children = data.nodes.filter(c => c.parentGroupId === n.id).length;
     const doc = data.documents.find(d => d.id === n.documentId);
-    return { id: n.id, type: 'scenario', position: parent ? { x: n.position.x - parent.position.x, y: n.position.y - parent.position.y } : { ...n.position }, parentId: parent?.id, selected: selected.has(n.id), hidden: !included.has(n.id), style: sizes.get(n.id), data: { title: n.title, preview: doc ? previewText(doc.content, data) : '', typeName: type.name, color: children > 0 ? groupColors[n.id] ?? type.color : type.color, tags: n.tagIds.map(id => data.tags.find(t => t.id === id)?.name ?? ''), children, match: matches.has(n.id), minWidth: minimums.get(n.id)!.width, minHeight: minimums.get(n.id)!.height, resizable, onResizeStart, onResizeEnd } };
+    return { id: n.id, type: 'scenario', position: parent ? { x: n.position.x - parent.position.x, y: n.position.y - parent.position.y } : { ...n.position }, parentId: parent?.id, selected: selected.has(n.id), hidden: !included.has(n.id), style: sizes.get(n.id), data: { title: n.title, preview: doc ? previewText(doc.content, data) : '', previewParts: doc ? previewParts(doc.content, data) : [], typeName: type.name, color: children > 0 ? groupColors[n.id] ?? type.color : type.color, tags: n.tagIds.map(id => data.tags.find(t => t.id === id)?.name ?? ''), children, match: matches.has(n.id), minWidth: minimums.get(n.id)!.width, minHeight: minimums.get(n.id)!.height, resizable, onResizeStart, onResizeEnd } };
   });
 }
 export function toFlowEdges(data: Snapshot, matches: Set<string>, kinds: Set<string>, selectedId?: string): ScenarioFlowEdge[] {
