@@ -33,13 +33,40 @@ function entityTooltip(entityId: string, snapshot: Snapshot): string {
 function previewParts(content: Content[], snapshot: Snapshot): PreviewPart[] {
   const parts: PreviewPart[] = [];
   const addText = (text: string) => { if (!text) return; const previous = parts.at(-1); if (previous?.kind === 'text') previous.text += text; else parts.push({ kind: 'text', text }); };
-  const visit = (items: Content[]) => items.forEach(item => {
+  const addBreak = () => { if (parts.length && parts.at(-1)?.kind !== 'break') parts.push({ kind: 'break' }); };
+  const visitInline = (items: Content[]) => items.forEach(item => {
     if (item.kind === 'text') addText(item.text);
     else if (item.kind === 'entity') { const entity = snapshot.entities.find(candidate => candidate.id === item.reference.entityId); const display = resolveReference(item.reference, snapshot); parts.push({ kind: 'entity', text: display.text, tooltip: entityTooltip(item.reference.entityId, snapshot) }); }
     else if (item.kind === 'nodeLink') addText(item.text);
     else if (item.style === 'divider') addText('────────');
-    else if (item.style === 'bulletList' || item.style === 'orderedList') item.children.forEach((child, index) => { if (index) parts.push({ kind: 'break' }); addText(item.style === 'bulletList' ? '• ' : `${index + 1}. `); visit([child]); });
-    else { if (parts.length) parts.push({ kind: 'break' }); visit(item.children); }
+    else visitInline(item.children);
+  });
+  const visitListItem = (items: Content[]) => {
+    let hasBlock = false;
+    for (const item of items) {
+      if (item.kind !== 'block') { visitInline([item]); continue; }
+      if (item.style === 'bulletList' || item.style === 'orderedList') {
+        if (hasBlock) addBreak();
+        visitList(item);
+      } else {
+        if (hasBlock) addBreak();
+        visitInline(item.children);
+      }
+      hasBlock = true;
+    }
+  };
+  const visitList = (list: Extract<Content, { kind: 'block' }>) => {
+    list.children.forEach((child, index) => {
+      if (index) addBreak();
+      addText(list.style === 'bulletList' ? '• ' : `${index + 1}. `);
+      visitListItem(child.kind === 'block' && child.style === 'listItem' ? child.children : [child]);
+    });
+  };
+  const visit = (items: Content[]) => items.forEach(item => {
+    if (item.kind !== 'block') { visitInline([item]); return; }
+    if (item.style === 'bulletList' || item.style === 'orderedList') { addBreak(); visitList(item); }
+    else if (item.style === 'listItem') { addBreak(); visitListItem(item.children); }
+    else { addBreak(); visitInline(item.children); }
   });
   visit(content);
   return parts;
