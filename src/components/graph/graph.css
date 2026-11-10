@@ -50,7 +50,7 @@
 .node-preview{font-size:18px;line-height:1.35;}
 .entity-preview-reference{border-bottom:1px dotted currentColor;cursor:help;}
 .graph-floating-panel{position:fixed;width:min(360px,calc(100vw - 16px));max-height:calc(100dvh - 16px);display:flex;flex-direction:column;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 14px 42px #1115;overflow:hidden;}
-.graph-floating-panel__header{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;padding:7px 10px 7px 14px;background:var(--panel, #f0f3ed);border-bottom:1px solid var(--line);cursor:grab;touch-action:none;user-select:none;}
+.graph-floating-panel__header{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;padding:7px 10px 7px 14px;background:color-mix(in srgb,var(--accent) 14%,var(--paper));border-bottom:1px solid color-mix(in srgb,var(--accent) 32%,var(--line));cursor:grab;touch-action:none;user-select:none;}
 .graph-floating-panel__header:active{cursor:grabbing;}
 .graph-floating-panel__header strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:600;}
 .graph-floating-panel__header button{width:32px;height:30px;padding:0;font-size:20px;line-height:1;}
