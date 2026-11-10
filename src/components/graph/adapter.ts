@@ -102,6 +102,6 @@ export function toFlowEdges(data: Snapshot, matches: Set<string>, kinds: Set<str
   return data.edges.map(e => {
     const pair = pairs.get([e.sourceId, e.targetId].sort().join(':'))!;
     const offset = e.sourceId === e.targetId ? pair.indexOf(e.id) * 40 : (pair.indexOf(e.id) - (pair.length - 1) / 2) * 56 * (e.sourceId > e.targetId ? -1 : 1);
-    return { id: e.id, source: e.sourceId, target: e.targetId, type: 'scenario', label: e.label, selected: e.id === selectedId, hidden: !matches.has(e.sourceId) || !matches.has(e.targetId) || !kinds.has(e.kind), markerEnd: { type: MarkerType.ArrowClosed, color: edgeColors[e.kind] }, style: { stroke: edgeColors[e.kind], strokeWidth: e.id === selectedId ? 3 : 1.8, strokeDasharray: e.kind === 'reference' ? '4 5' : e.kind === 'dependency' ? '10 4' : undefined }, data: { lane: offset }, ariaLabel: `${e.label || '接続'} (${e.kind})` };
+    return { id: e.id, source: e.sourceId, target: e.targetId, type: 'scenario', label: e.label, selected: e.id === selectedId, hidden: !matches.has(e.sourceId) || !matches.has(e.targetId) || !kinds.has(e.kind), markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--accent)' }, style: { stroke: edgeColors[e.kind], strokeWidth: e.id === selectedId ? 3 : 1.8, strokeDasharray: e.kind === 'reference' ? '4 5' : e.kind === 'dependency' ? '10 4' : undefined }, data: { lane: offset }, ariaLabel: `${e.label || '接続'} (${e.kind})` };
   });
 }
