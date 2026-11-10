@@ -31,7 +31,12 @@ function FlowEdge({ id, source, target, sourceX: sx, sourceY: sy, targetX: tx, t
   const qx = cx - (ty - sy) / length * bend; const qy = cy + (tx - sx) / length * bend;
   const height = 120 + Math.abs(lane);
   const path = loop ? `M ${sx} ${sy} C ${sx + 90} ${sy - height}, ${tx - 90} ${ty - height}, ${tx} ${ty}` : `M ${sx} ${sy} Q ${qx} ${qy} ${tx} ${ty}`;
-  return <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} label={label} labelX={loop ? cx : (sx + 2*qx + tx)/4} labelY={loop ? sy - height * .75 : (sy + 2*qy + ty)/4} labelBgPadding={[6, 4]} labelBgBorderRadius={4} interactionWidth={24} />;
+  const tangentLength = Math.max(1, Math.hypot(tx - sx, ty - sy));
+  const normalX = -(ty - sy) / tangentLength; const normalY = (tx - sx) / tangentLength;
+  const normalDirection = normalY > 0 || (Math.abs(normalY) < .35 && normalX < 0) ? -1 : 1;
+  const labelX = loop ? cx : (sx + 2*qx + tx) / 4 + normalX * normalDirection * 20;
+  const labelY = loop ? sy - height * .75 - 20 : (sy + 2*qy + ty) / 4 + normalY * normalDirection * 20;
+  return <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} label={label} labelX={labelX} labelY={labelY} labelShowBg={false} labelStyle={{ fill: 'var(--ink)', fontSize: 14 }} interactionWidth={24} />;
 }
 const nodeTypes = { scenario: NodeCard }; const edgeTypes = { scenario: FlowEdge };
 const resizeHandles = [
