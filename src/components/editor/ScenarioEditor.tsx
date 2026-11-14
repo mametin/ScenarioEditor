@@ -11,13 +11,16 @@ import { hideEntityHover, showEntityHover } from '../entities/entity-hover';
 import './editor.css';
 
 export type ScenarioEditorProps = { snapshot: Snapshot; documentId: string; onChange: (snapshot: Snapshot) => void; onOpenEntity?: (id: string) => void; onOpenNode?: (id: string) => void; disabled?: boolean };
-export default function ScenarioEditor(props: ScenarioEditorProps) { return <EditorInstance key={props.documentId} {...props}/>; }
+export default function ScenarioEditor(props: ScenarioEditorProps) { return <EditorInstance key={`${props.snapshot.project.id}:${props.documentId}`} {...props}/>; }
 function EditorInstance(props: ScenarioEditorProps) {
   const latest = useRef(props); latest.current = props;
   const refreshViews = useRef(new Set<() => void>());
   const failedUpdate = useRef(false);
   const [recovery, setRecovery] = useState<string | null>(null);
   const rescueKey = recoveryKey(props.snapshot.project.id, props.documentId);
+  const cursorKey = `scenario-editor-cursor:${props.snapshot.project.id}:${props.documentId}`;
+  const cursorSaveTimer = useRef<number | undefined>(undefined);
+  const restoredCursorKey = useRef('');
   useEffect(() => {
     try { setRecovery(sessionStorage.getItem(rescueKey)); } catch { setError('救出用原稿の読み込みに失敗しました。ブラウザの保存領域を確認してください。'); }
     const before = (event: BeforeUnloadEvent) => { if (failedUpdate.current) { event.preventDefault(); event.returnValue = ''; } };
@@ -62,6 +65,13 @@ function EditorInstance(props: ScenarioEditorProps) {
   const prepared = safeContent();
   const editor = useEditor({ extensions, immediatelyRender: false, content: prepared.json, editable: !props.disabled && !prepared.error,
     editorProps: { attributes: { 'aria-label': 'シナリオ本文', class: 'scenario-prose' } },
+    onSelectionUpdate: ({ editor }) => {
+      const { anchor, head } = editor.state.selection;
+      window.clearTimeout(cursorSaveTimer.current);
+      cursorSaveTimer.current = window.setTimeout(() => {
+        try { localStorage.setItem(cursorKey, JSON.stringify({ anchor, head })); } catch { /* Cursor memory is optional; keep editing available. */ }
+      }, 180);
+    },
     onUpdate: ({ editor }) => {
       try {
         const next = structuredClone(latest.current.snapshot); const doc = next.documents.find(d => d.id === latest.current.documentId); if (!doc) throw new Error('本文が見つかりません');
@@ -76,6 +86,23 @@ function EditorInstance(props: ScenarioEditorProps) {
     },
   });
   useEffect(() => { editor?.setEditable(!props.disabled && !prepared.error); }, [editor, props.disabled, prepared.error]);
+  useEffect(() => {
+    if (!editor || prepared.error || restoredCursorKey.current === cursorKey) return;
+    restoredCursorKey.current = cursorKey;
+    try {
+      const value = JSON.parse(localStorage.getItem(cursorKey) ?? 'null') as { anchor?: unknown; head?: unknown } | null;
+      if (typeof value?.anchor !== 'number' || typeof value.head !== 'number') return;
+      const maxPosition = Math.max(1, editor.state.doc.content.size - 1);
+      const anchor = Math.max(1, Math.min(maxPosition, value.anchor));
+      const head = Math.max(1, Math.min(maxPosition, value.head));
+      editor.commands.setTextSelection({ from: Math.min(anchor, head), to: Math.max(anchor, head) });
+    } catch { /* Ignore malformed or unavailable cursor preferences. */ }
+  }, [editor, cursorKey, prepared.error]);
+  useEffect(() => () => {
+    window.clearTimeout(cursorSaveTimer.current);
+    if (!editor) return;
+    try { localStorage.setItem(cursorKey, JSON.stringify({ anchor: editor.state.selection.anchor, head: editor.state.selection.head })); } catch { /* Cursor memory is optional; keep editing available. */ }
+  }, [cursorKey, editor]);
   useEffect(() => { for (const render of refreshViews.current) render(); if (!editor || !document || failedUpdate.current || prepared.error) return; try { const own = fromEditorJSON(editor.getJSON()); if (JSON.stringify(normalizeContent(own)) !== JSON.stringify(normalizeContent(document.content))) editor.commands.setContent(prepared.json, { emitUpdate: false }); } catch (e) { setError(e instanceof Error ? e.message : '本文を読み込めません'); } }, [editor, document, props.snapshot]);
   if (!document) return <p role="alert">本文が見つかりません。</p>;
   if (prepared.error) return <p role="alert" className="editor-error">{prepared.error}</p>;

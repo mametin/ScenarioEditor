@@ -7,6 +7,9 @@ import { ProjectRepository, ScenarioDatabase, type Stored } from '../storage/dat
 import { Autosave, type SaveStatus } from '../storage/autosave';
 import ColorPicker from '../components/ColorPicker';
 import CommandSearch from '../components/CommandSearch';
+import EditorTabs from '../components/workbench/EditorTabs';
+import PinnedReferencePanel from '../components/entities/PinnedReferencePanel';
+import { closeEditorTab, editorTargetKey, emptyEditorTabs, openEditorTab, pinEditorTab, readEditorTabs, writeEditorTabs, type EditorTab, type EditorTarget, type EditorTabsState } from '../components/workbench/session';
 const GraphEditor = dynamic(() => import('../components/graph/GraphEditor'), { ssr: false, loading: () => <p>グラフを読み込んでいます…</p> });
 
 const RichTextEditor = dynamic(() => import('../components/editor/RichTextEditor'), { ssr: false });
@@ -43,6 +46,11 @@ export default function Home() {
   const [view, setView] = useState<'overview' | 'graph' | 'writing' | 'entities' | 'types' | 'tags' | 'outline'>('overview');
   const [openedEntity, setOpenedEntity] = useState<string>();
   const [openedNode, setOpenedNode] = useState<string>();
+  const [editorTabs, setEditorTabs] = useState<EditorTabsState>(emptyEditorTabs);
+  const [tabsProjectId, setTabsProjectId] = useState<string>();
+  const [backHistory, setBackHistory] = useState<EditorTarget[]>([]);
+  const [forwardHistory, setForwardHistory] = useState<EditorTarget[]>([]);
+  const [pinnedReferenceId, setPinnedReferenceId] = useState<string | null>(null);
   const [graphFocusNodeId, setGraphFocusNodeId] = useState<string>();
   const [focusOutlineItemId, setFocusOutlineItemId] = useState<string>();
   const [outlineTargetNodeId, setOutlineTargetNodeId] = useState<string>();
@@ -145,6 +153,42 @@ export default function Home() {
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [active?.project.id, active?.project.updatedAt, status]);
   useEffect(() => {
+    if (!active) return;
+    const restored = readEditorTabs(active.project.id, active);
+    setEditorTabs(restored); setTabsProjectId(active.project.id); setBackHistory([]); setForwardHistory([]);
+    const activeTab = restored.tabs.find(tab => editorTargetKey(tab) === restored.activeKey);
+    if (activeTab) {
+      if (activeTab.kind === 'node') { setOpenedNode(activeTab.id); setView('writing'); }
+      else { setOpenedEntity(activeTab.id); setView('entities'); }
+    }
+    try {
+      const pinned = localStorage.getItem(`scenario-editor-pinned-reference:${active.project.id}`);
+      setPinnedReferenceId(pinned && active.entities.some(entity => entity.id === pinned) ? pinned : null);
+    } catch { setPinnedReferenceId(null); }
+  }, [active?.project.id]);
+  useEffect(() => {
+    if (!active || tabsProjectId !== active.project.id) return;
+    const timer = window.setTimeout(() => writeEditorTabs(active.project.id, editorTabs), 120);
+    return () => window.clearTimeout(timer);
+  }, [active?.project.id, tabsProjectId, editorTabs]);
+  useEffect(() => {
+    if (!active || tabsProjectId !== active.project.id) return;
+    try {
+      const key = `scenario-editor-pinned-reference:${active.project.id}`;
+      if (pinnedReferenceId && active.entities.some(entity => entity.id === pinnedReferenceId)) localStorage.setItem(key, pinnedReferenceId);
+      else { localStorage.removeItem(key); if (pinnedReferenceId) setPinnedReferenceId(null); }
+    } catch { /* A fixed reference is a display preference; it must not interrupt editing. */ }
+  }, [active?.project.id, active?.entities, tabsProjectId, pinnedReferenceId]);
+  useEffect(() => {
+    if (!active) return;
+    setEditorTabs(current => {
+      const tabs = current.tabs.filter(tab => tab.kind === 'node' ? active.nodes.some(node => node.id === tab.id) : active.entities.some(entity => entity.id === tab.id));
+      if (tabs.length === current.tabs.length) return current;
+      const activeKey = tabs.some(tab => editorTargetKey(tab) === current.activeKey) ? current.activeKey : tabs.at(-1) ? editorTargetKey(tabs.at(-1)!) : null;
+      return { tabs, activeKey };
+    });
+  }, [active?.nodes, active?.entities]);
+  useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       if (!current.current || !(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 'k') return;
       const target = event.target;
@@ -195,10 +239,72 @@ export default function Home() {
     const row = await repo.current!.save(data, 0); await refresh(); select(row);
   }
   function saveEditor(data: Snapshot) { try { const validated = parseSnapshot(data); current.current = validated; setActive(validated); saver.current!.enqueue(validated); } catch(e) { report(e); } }
+  function currentEditorTarget() { return editorTabs.tabs.find(tab => editorTargetKey(tab) === editorTabs.activeKey); }
+  function showEditorTarget(target: EditorTarget) {
+    if (!active) return;
+    const exists = target.kind === 'node' ? active.nodes.some(node => node.id === target.id) : active.entities.some(entity => entity.id === target.id);
+    if (!exists) return;
+    setEditorTabs(current => {
+      const key = editorTargetKey(target);
+      return current.tabs.some(tab => editorTargetKey(tab) === key) ? { ...current, activeKey: key } : openEditorTab(current, target);
+    });
+    if (target.kind === 'node') { setOpenedNode(target.id); setView('writing'); }
+    else { setOpenedEntity(target.id); setView('entities'); }
+  }
+  function navigateEditorTarget(target: EditorTarget, pin = false, addHistory = true) {
+    const key = editorTargetKey(target);
+    const previous = currentEditorTarget();
+    if (addHistory && previous && editorTargetKey(previous) !== key) {
+      setBackHistory(items => [...items, { kind: previous.kind, id: previous.id }].slice(-80));
+      setForwardHistory([]);
+    }
+    setEditorTabs(current => openEditorTab(current, target, pin));
+    showEditorTarget(target);
+  }
+  function goBack() {
+    const target = backHistory.at(-1); if (!target) return;
+    const currentTarget = currentEditorTarget();
+    setBackHistory(items => items.slice(0, -1));
+    if (currentTarget) setForwardHistory(items => [...items, { kind: currentTarget.kind, id: currentTarget.id }].slice(-80));
+    showEditorTarget(target);
+  }
+  function goForward() {
+    const target = forwardHistory.at(-1); if (!target) return;
+    const currentTarget = currentEditorTarget();
+    setForwardHistory(items => items.slice(0, -1));
+    if (currentTarget) setBackHistory(items => [...items, { kind: currentTarget.kind, id: currentTarget.id }].slice(-80));
+    showEditorTarget(target);
+  }
+  function closeEditorTarget(tab: EditorTab) {
+    const key = editorTargetKey(tab);
+    const wasActive = editorTabs.activeKey === key;
+    setEditorTabs(current => closeEditorTab(current, key));
+    setBackHistory(items => items.filter(item => editorTargetKey(item) !== key));
+    setForwardHistory(items => items.filter(item => editorTargetKey(item) !== key));
+    if (wasActive) {
+      const remaining = editorTabs.tabs.filter(item => editorTargetKey(item) !== key);
+      const replacement = remaining[Math.min(editorTabs.tabs.findIndex(item => editorTargetKey(item) === key), remaining.length - 1)];
+      if (replacement) showEditorTarget(replacement);
+      else if (view === 'writing' || view === 'entities') { setOpenedNode(undefined); setOpenedEntity(undefined); setView('overview'); }
+    }
+  }
+  function switchScreen(screenId: (typeof screens)[number]['id']) {
+    if (screenId === 'writing' && active) {
+      const target = currentEditorTarget()?.kind === 'node' ? currentEditorTarget() : undefined;
+      const nodeId = target?.id ?? (openedNode && active.nodes.some(node => node.id === openedNode) ? openedNode : active.nodes[0]?.id);
+      if (nodeId) { showEditorTarget({ kind: 'node', id: nodeId }); return; }
+    }
+    if (screenId === 'entities' && active) {
+      const target = currentEditorTarget()?.kind === 'entity' ? currentEditorTarget() : undefined;
+      const entityId = target?.id ?? (openedEntity && active.entities.some(entity => entity.id === openedEntity) ? openedEntity : active.entities[0]?.id);
+      if (entityId) { showEditorTarget({ kind: 'entity', id: entityId }); return; }
+    }
+    setView(screenId);
+  }
   function PhaseThreeContent() {
     if (!active) return null;
-    if (view === 'writing') return <WritingWorkspace key={`${active.project.id}-${openedNode ?? ''}`} snapshot={active} onChange={saveEditor} selectedNodeId={openedNode} onOpenEntity={id => { setOpenedEntity(id); setView('entities'); }}/>
-    if (view === 'entities') return <EntityManager snapshot={active} onChange={saveEditor} selectedEntityId={openedEntity} onSelectEntity={setOpenedEntity} renderDescription={id => <RichTextEditor key={id} snapshot={active} documentId={id} onChange={saveEditor} onOpenEntity={setOpenedEntity} onOpenNode={id => { setOpenedNode(id); setView("writing"); }}/>} onSelectNode={id => { setOpenedNode(id); setView('writing'); }}/>
+    if (view === 'writing') return <div className={`writing-session${currentPinnedReferenceId ? ' has-reference' : ''}`}><div className="writing-session-main"><WritingWorkspace key={`${active.project.id}-${openedNode ?? ''}`} snapshot={active} onChange={saveEditor} selectedNodeId={openedNode} onOpenEntity={id => navigateEditorTarget({ kind: 'entity', id })} onOpenNode={id => navigateEditorTarget({ kind: 'node', id })}/></div><PinnedReferencePanel snapshot={active} entityId={currentPinnedReferenceId} onClose={() => setPinnedReferenceId(null)} onOpen={id => navigateEditorTarget({ kind: 'entity', id })}/></div>
+    if (view === 'entities') return <EntityManager snapshot={active} onChange={saveEditor} selectedEntityId={openedEntity} onSelectEntity={setOpenedEntity} onNavigateEntity={id => navigateEditorTarget({ kind: 'entity', id })} pinnedEntityId={currentPinnedReferenceId} onPinEntity={id => setPinnedReferenceId(currentId => currentId === id ? null : id)} renderDescription={id => <RichTextEditor key={`${active.project.id}:${id}`} snapshot={active} documentId={id} onChange={saveEditor} onOpenEntity={nextId => navigateEditorTarget({ kind: 'entity', id: nextId })} onOpenNode={nextId => navigateEditorTarget({ kind: 'node', id: nextId })}/>} onSelectNode={id => navigateEditorTarget({ kind: 'node', id })}/>
     if (view === 'types') return <><NodeTypeManager snapshot={active} onChange={saveEditor}/><ConnectionTypeManager snapshot={active} onChange={saveEditor}/></>;
     if (view === 'tags') return <TagManager snapshot={active} onChange={saveEditor}/>;
     if (view === 'outline') return <OutlineWorkspace snapshot={active} onChange={saveEditor} selectedNodeId={outlineTargetNodeId} focusOutlineItemId={focusOutlineItemId} onSelectNode={id => { setGraphFocusNodeId(id); setView('graph'); }}/>;
@@ -208,9 +314,11 @@ export default function Home() {
   const accentOnSurface = contrastRatio(themeColor, contrastSurface);
   const whiteOnAccent = contrastRatio('#ffffff', themeColor);
   const contrastNeedsAttention = accentOnSurface < 4.5 || whiteOnAccent < 4.5;
+  const projectTabsReady = !!active && tabsProjectId === active.project.id;
+  const currentPinnedReferenceId = projectTabsReady && active?.entities.some(entity => entity.id === pinnedReferenceId) ? pinnedReferenceId : null;
   return <div className={`app${view === 'graph' ? ' graph-mode' : ''}${focus ? ' focus' : ''}${active ? ' has-project' : ''}${active && view !== 'overview' ? ' workspace-mode' : ''}${navExpanded ? ' is-nav-expanded' : ''}`}>
     <header className="topbar"><a className="brand" href="/" aria-label="Scenario Editor ホーム">◈ <span>SCENARIO <b>EDITOR</b></span></a><div className="topbar-context"><strong>{active?.project.title || 'Scenario Editor'}</strong><span>{active ? ` / ${screenLabels[view]}` : ' / シナリオ執筆環境'}</span></div><button type="button" className="search-launch" disabled={!active} aria-keyshortcuts="Control+K Meta+K" onClick={() => setSearchOpen(true)}>検索 <kbd>Ctrl K</kbd></button><div className="appearance-controls">{view === 'overview' && <button className="focus-toggle" onClick={() => setFocus(!focus)}>{focus ? '通常表示' : '集中表示'}</button>}<details className="appearance-settings"><summary>外観</summary><div className="appearance-picker-list"><ColorPicker label="テーマカラー" value={themeColor} onChange={setThemeColor}/><ColorPicker label="背景色" value={backgroundColor} onChange={setBackgroundColor}/><label className="appearance-select">UIフォント<select value={uiFont} onChange={event => setUiFont(event.target.value as typeof uiFont)}><option value="mono">Consolas / Courier New</option><option value="sans">ゴシック体</option></select></label><label className="appearance-select">本文フォント<select value={bodyFont} onChange={event => setBodyFont(event.target.value as typeof bodyFont)}><option value="sans">ゴシック体</option><option value="serif">明朝体</option><option value="mono">Consolas / Courier New</option></select></label><label className="appearance-select">本文サイズ <output>{bodyFontSize}px</output><input type="range" min="14" max="24" step="1" value={bodyFontSize} onChange={event => setBodyFontSize(Number(event.target.value))}/></label><section className="contrast-check" aria-live="polite"><strong>テーマ色のコントラスト</strong><span>テーマ色／画面面 <b>{accentOnSurface.toFixed(1)}:1</b></span><span>白文字／テーマ色 <b>{whiteOnAccent.toFixed(1)}:1</b></span><p className={contrastNeedsAttention ? 'needs-attention' : 'contrast-ok'}>{contrastNeedsAttention ? '4.5:1を下回る組み合わせがあります。テーマ色または背景色を調整してください。' : '通常サイズの文字で読みやすさの目安を満たしています。'}</p></section></div></details><button className="theme-toggle" aria-label={theme === 'dark' ? 'ライトモードに切り替え' : 'ダークモードに切り替え'} aria-pressed={theme === 'dark'} onClick={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? '☀ ライト' : '☾ ダーク'}</button></div></header>
-    {active && <nav className={`activity-bar${navExpanded ? ' is-expanded' : ''}`} aria-label="作業画面"><button className="activity-bar__toggle" type="button" aria-label={navExpanded ? 'ナビゲーションを折りたたむ' : 'ナビゲーションを展開'} aria-expanded={navExpanded} title={navExpanded ? 'ナビゲーションを折りたたむ' : 'ナビゲーションを展開'} onClick={() => { const next = !navExpanded; setNavExpanded(next); try { localStorage.setItem('scenario-editor-nav-expanded', String(next)); } catch { /* Keep the current-session setting when browser storage is unavailable. */ } }}><span aria-hidden="true">{navExpanded ? '‹' : '›'}</span><small>{navExpanded ? 'ナビを閉じる' : 'ナビを開く'}</small></button><div className="activity-bar__divider"/><p className="activity-bar__heading">{navExpanded ? 'WORKSPACE' : ' '}</p>{screens.map(screen => <button className="activity-bar__item" key={screen.id} type="button" title={screen.label} aria-label={screen.label} aria-current={view === screen.id ? 'page' : undefined} onClick={() => setView(screen.id)}><span aria-hidden="true">{screen.icon}</span><small>{screen.label}</small></button>)}</nav>}
+    {active && <nav className={`activity-bar${navExpanded ? ' is-expanded' : ''}`} aria-label="作業画面"><button className="activity-bar__toggle" type="button" aria-label={navExpanded ? 'ナビゲーションを折りたたむ' : 'ナビゲーションを展開'} aria-expanded={navExpanded} title={navExpanded ? 'ナビゲーションを折りたたむ' : 'ナビゲーションを展開'} onClick={() => { const next = !navExpanded; setNavExpanded(next); try { localStorage.setItem('scenario-editor-nav-expanded', String(next)); } catch { /* Keep the current-session setting when browser storage is unavailable. */ } }}><span aria-hidden="true">{navExpanded ? '‹' : '›'}</span><small>{navExpanded ? 'ナビを閉じる' : 'ナビを開く'}</small></button><div className="activity-bar__divider"/><p className="activity-bar__heading">{navExpanded ? 'WORKSPACE' : ' '}</p>{screens.map(screen => <button className="activity-bar__item" key={screen.id} type="button" title={screen.label} aria-label={screen.label} aria-current={view === screen.id ? 'page' : undefined} onClick={() => switchScreen(screen.id)}><span aria-hidden="true">{screen.icon}</span><small>{screen.label}</small></button>)}</nav>}
     <div className="workspace" hidden={view !== 'overview'} style={view !== 'overview' ? { display: 'none' } : undefined}>
       <aside className="sidebar"><div className="eyebrow">YOUR WORKSPACE</div><h2>シナリオ</h2><button className="primary wide" disabled={!ready || busy} onClick={() => void run(async () => { await settle(); const row = await repo.current!.save(createProject(), 0); await refresh(); select(row); })}>＋ 新規プロジェクト</button>
         <nav aria-label="プロジェクト一覧">{projects.map(row => <button className={row.id === active?.project.id ? 'project selected' : 'project'} key={row.id} disabled={busy} onClick={() => void run(async () => { await settle(); const latest = await repo.current!.load(row.id); if (latest) select(latest); await refresh(); })}><span>▤</span><span>{row.id === active?.project.id ? active.project.title || '無題' : row.snapshot.project.title || '無題'}<small>{new Date(row.savedAt).toLocaleDateString('ja-JP')}</small></span></button>)}</nav>
@@ -232,14 +340,15 @@ export default function Home() {
     </div>
     {active && view !== 'overview' && <div className="workspace-surface">
       <div className="graph-savebar"><span className={status === 'error' ? 'save-error' : ''} role="status">{labels[status]}</span><span>{online ? 'オンライン' : 'オフライン'}</span><span className="last-saved-inline" title={lastSavedAt ? new Date(lastSavedAt).toLocaleString('ja-JP') : undefined}>最終保存 {lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : '—'}</span><span className="backup-inline">{lastBackupAt ? `JSON退避 ${new Date(lastBackupAt).toLocaleDateString('ja-JP')}` : 'JSON未退避'}</span><button onClick={download}>JSONバックアップ</button></div>
+      {projectTabsReady && <EditorTabs tabs={editorTabs.tabs} activeKey={editorTabs.activeKey} titleFor={tab => tab.kind === 'node' ? active.nodes.find(node => node.id === tab.id)?.title || '無題のノード' : active.entities.find(entity => entity.id === tab.id)?.name || '無名の資料'} canBack={backHistory.length > 0} canForward={forwardHistory.length > 0} onBack={goBack} onForward={goForward} onActivate={tab => navigateEditorTarget(tab)} onClose={closeEditorTarget} onTogglePin={tab => setEditorTabs(current => pinEditorTab(current, editorTargetKey(tab)))}/> }
       {error && <div className="error" role="alert">{error}<button onClick={() => void saver.current?.flush()}>保存を再試行</button><button onClick={download}>未保存JSONを退避</button></div>}
-      {view === 'graph' && <GraphEditor key={`${active.project.id}-${editorSession}`} snapshot={active} disabled={busy} initialSelectedNodeId={graphFocusNodeId} onOpenOutline={(itemId, nodeId) => { setFocusOutlineItemId(itemId); setOutlineTargetNodeId(nodeId); setView('outline'); }} onWriteNode={id => { setOpenedNode(id); setView("writing"); }} onOpenEntity={id => { setOpenedEntity(id); setView('entities'); }} onChange={data => { current.current = data; setActive(data); saver.current!.enqueue(data); }}/>}
+      {view === 'graph' && <GraphEditor key={`${active.project.id}-${editorSession}`} snapshot={active} disabled={busy} initialSelectedNodeId={graphFocusNodeId} onOpenOutline={(itemId, nodeId) => { setFocusOutlineItemId(itemId); setOutlineTargetNodeId(nodeId); setView('outline'); }} onWriteNode={id => navigateEditorTarget({ kind: 'node', id })} onOpenEntity={id => navigateEditorTarget({ kind: 'entity', id })} onChange={data => { current.current = data; setActive(data); saver.current!.enqueue(data); }}/>}
       {view !== 'graph' && <div className="phase-three-panel">{PhaseThreeContent()}</div>}
-      {active && <EntityHoverCard snapshot={active} onOpen={id => { setOpenedEntity(id); setView('entities'); }}/>}
+      {active && <EntityHoverCard snapshot={active} onOpen={id => navigateEditorTarget({ kind: 'entity', id })}/>}
     </div>}
     <footer className="bottom"><span>TRPG SCENARIO EDITOR</span><span>あなたの物語は、あなたの手元に。</span></footer>
-    <nav className="mobile-primary-nav" aria-label="メイン画面">{screens.map(screen => <button key={screen.id} disabled={screen.id !== 'overview' && !active} aria-current={view === screen.id ? 'page' : undefined} aria-label={screen.label} title={screen.label} onClick={() => setView(screen.id)}><span aria-hidden="true">{screen.icon}</span><small>{screen.label}</small></button>)}</nav>
-    {searchOpen && active && <CommandSearch snapshot={active} onClose={() => setSearchOpen(false)} onOpen={result => { setSearchOpen(false); if (result.kind === 'node') { setOpenedNode(result.id); setView('writing'); } else { setOpenedEntity(result.id); setView('entities'); } }}/>}
+    <nav className="mobile-primary-nav" aria-label="メイン画面">{screens.map(screen => <button key={screen.id} disabled={screen.id !== 'overview' && !active} aria-current={view === screen.id ? 'page' : undefined} aria-label={screen.label} title={screen.label} onClick={() => switchScreen(screen.id)}><span aria-hidden="true">{screen.icon}</span><small>{screen.label}</small></button>)}</nav>
+    {searchOpen && active && <CommandSearch snapshot={active} onClose={() => setSearchOpen(false)} onOpen={result => { setSearchOpen(false); navigateEditorTarget({ kind: result.kind, id: result.id }); }}/>}
   </div>;
 }
 

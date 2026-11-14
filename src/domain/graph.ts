@@ -82,6 +82,7 @@ export function deleteNodes(draft: Snapshot, ids: Set<string>) {
   draft.edges = draft.edges.filter(e => !ids.has(e.sourceId) && !ids.has(e.targetId));
   // Keep headings and ordering; only remove the deleted node association.
   for (const item of draft.outline) if (item.nodeId && ids.has(item.nodeId)) item.nodeId = null;
+  for (const folder of draft.organizerFolders) folder.nodeIds = folder.nodeIds.filter(id => !ids.has(id));
   // Documents are retained, including possibly shared/custom-field documents.
 }
 export function connect(draft: Snapshot, sourceId: string, targetId: string, kind: ScenarioEdge['kind']): string {
@@ -111,6 +112,35 @@ export function addNodesToGroup(draft: Snapshot, groupId: string, ids: Set<strin
   }
   const now = new Date().toISOString();
   for (const node of moving) { node.parentGroupId = groupId; node.updatedAt = now; }
+}
+/** Move selected top-level items into a group or back to the root. Stored graph
+ * coordinates and outline order are intentionally left untouched. */
+export function moveNodesToParent(draft: Snapshot, parentId: string | null, ids: Set<string>) {
+  const nodeById = new Map(draft.nodes.map(node => [node.id, node]));
+  const selected = new Set([...ids].filter(id => nodeById.has(id)));
+  if (parentId && !draft.nodes.some(node => node.id === parentId)) throw new Error('移動先のグループが見つかりません');
+  if (parentId && selected.has(parentId)) throw new Error('選択中のノード自身には移動できません');
+  const moving = draft.nodes.filter(node => {
+    if (!selected.has(node.id)) return false;
+    let ancestorId = node.parentGroupId;
+    while (ancestorId) { if (selected.has(ancestorId)) return false; ancestorId = nodeById.get(ancestorId)?.parentGroupId ?? null; }
+    return true;
+  });
+  if (!moving.length) throw new Error('移動するノードを選択してください');
+  if (parentId) {
+    let ancestorId: string | null = parentId;
+    while (ancestorId) { if (moving.some(node => node.id === ancestorId)) throw new Error('自分自身または子孫のグループには移動できません'); ancestorId = nodeById.get(ancestorId)?.parentGroupId ?? null; }
+  }
+  const now = new Date().toISOString();
+  for (const node of moving) { node.parentGroupId = parentId; node.updatedAt = now; }
+}
+export function changeNodesTag(draft: Snapshot, ids: Set<string>, tagId: string, action: 'add' | 'remove') {
+  if (!draft.tags.some(tag => tag.id === tagId)) throw new Error('タグが見つかりません');
+  const now = new Date().toISOString();
+  for (const node of draft.nodes) if (ids.has(node.id)) {
+    node.tagIds = action === 'add' ? [...new Set([...node.tagIds, tagId])] : node.tagIds.filter(id => id !== tagId);
+    node.updatedAt = now;
+  }
 }
 export function ungroup(draft: Snapshot, id: string) {
   const group = draft.nodes.find(n => n.id === id); if (!group) return;
@@ -150,7 +180,7 @@ export class GraphHistory {
   get canUndo() { return this.past.length > 0; }
   get canRedo() { return this.future.length > 0; }
   record(before: Snapshot) { this.past.push(structuredClone(before)); if (this.past.length > 100) this.past.shift(); this.future = []; }
-  private restore(current: Snapshot, saved: Snapshot): Snapshot { return { ...current, nodes: saved.nodes, edges: saved.edges, documents: saved.documents, tags: saved.tags, outline: saved.outline }; }
+  private restore(current: Snapshot, saved: Snapshot): Snapshot { return { ...current, nodes: saved.nodes, edges: saved.edges, documents: saved.documents, tags: saved.tags, outline: saved.outline, organizerFolders: saved.organizerFolders }; }
   undo(current: Snapshot): Snapshot | undefined { const previous = this.past.pop(); if (!previous) return; this.future.push(structuredClone(current)); return this.restore(current, previous); }
   redo(current: Snapshot): Snapshot | undefined { const next = this.future.pop(); if (!next) return; this.past.push(structuredClone(current)); return this.restore(current, next); }
 }

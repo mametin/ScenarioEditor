@@ -40,12 +40,15 @@ export const EntityAliasSchema = z.strictObject({ id, name: z.string() });
 export const ScenarioEntitySchema = z.strictObject({ ...base, category: z.string(), name: z.string(), aliases: z.array(EntityAliasSchema), descriptionDocumentId: id, fields, tagIds: z.array(id) });
 export const TagSchema = z.strictObject({ id, name: z.string(), color: z.string() });
 export const OutlineItemSchema = z.strictObject({ id, parentId: id.nullable(), title: z.string(), nodeId: id.nullable(), order: z.number().int().nonnegative() });
+export const OrganizerFolderSchema = z.strictObject({ id, parentId: id.nullable(), name: z.string().trim().min(1).max(120), order: z.number().int().nonnegative(), nodeIds: z.array(id) });
 export const SyncMetadataSchema = z.strictObject({ projectId: id, status: z.enum(['notConfigured','pending','syncing','synced','conflict','error']), lastSyncedRevision: z.number().int().nonnegative().nullable(), baseCommitSha: z.string().nullable(), lastSyncedAt: date.nullable() });
 export const ProjectSchema = z.strictObject({ ...base, title: z.string(), description: z.string() });
 const snapshotCore = { project: ProjectSchema, documents: z.array(DocumentSchema), edges: z.array(ScenarioEdgeSchema), nodeTypes: z.array(NodeTypeDefinitionSchema), entities: z.array(ScenarioEntitySchema), tags: z.array(TagSchema), outline: z.array(OutlineItemSchema), sync: SyncMetadataSchema };
 const SnapshotV1Schema = z.strictObject({ schemaVersion: z.literal(1), ...snapshotCore, nodes: z.array(ScenarioNodeV1Schema) });
 const SnapshotV2Schema = z.strictObject({ schemaVersion: z.literal(2), ...snapshotCore, nodes: z.array(ScenarioNodeSchema) });
-export const SnapshotSchema = z.strictObject({ schemaVersion: z.literal(3), ...snapshotCore, edgeTypes: z.array(EdgeTypeDefinitionSchema), nodes: z.array(ScenarioNodeSchema) });
+const snapshotV3Core = { ...snapshotCore, edgeTypes: z.array(EdgeTypeDefinitionSchema), nodes: z.array(ScenarioNodeSchema) };
+const SnapshotV3Schema = z.strictObject({ schemaVersion: z.literal(3), ...snapshotV3Core });
+export const SnapshotSchema = z.strictObject({ schemaVersion: z.literal(4), ...snapshotV3Core, organizerFolders: z.array(OrganizerFolderSchema) });
 export type Project = z.infer<typeof ProjectSchema>;
 export type ScenarioNode = z.infer<typeof ScenarioNodeSchema>;
 export type ScenarioEdge = z.infer<typeof ScenarioEdgeSchema>;
@@ -56,6 +59,7 @@ export type ScenarioEntity = z.infer<typeof ScenarioEntitySchema>;
 export type EntityAlias = z.infer<typeof EntityAliasSchema>;
 export type Tag = z.infer<typeof TagSchema>;
 export type OutlineItem = z.infer<typeof OutlineItemSchema>;
+export type OrganizerFolder = z.infer<typeof OrganizerFolderSchema>;
 export type SyncMetadata = z.infer<typeof SyncMetadataSchema>;
 export type Snapshot = z.infer<typeof SnapshotSchema>;
 
@@ -78,13 +82,20 @@ export function migrateSnapshotV2ToV3(raw: unknown) {
   return { ...version2, schemaVersion: 3 as const, edgeTypes: structuredClone(defaultEdgeTypes) };
 }
 
+/** Additive v3 -> v4 migration: independent organizer folders start empty. */
+export function migrateSnapshotV3ToV4(raw: unknown) {
+  const version3 = SnapshotV3Schema.parse(raw);
+  return { ...version3, schemaVersion: 4 as const, organizerFolders: [] };
+}
+
 /** Reject unsupported versions and unknown fields; migrations only add optional metadata. */
 export function parseSnapshot(raw: unknown): Snapshot {
   const version = raw && typeof raw === 'object' && 'schemaVersion' in raw ? raw.schemaVersion : undefined;
   const version2 = version === 1 ? migrateSnapshotV1ToV2(raw) : raw;
-  const migrated = version === 1 || version === 2 ? migrateSnapshotV2ToV3(version2) : raw;
+  const version3 = version === 1 || version === 2 ? migrateSnapshotV2ToV3(version2) : raw;
+  const migrated = version === 1 || version === 2 || version === 3 ? migrateSnapshotV3ToV4(version3) : raw;
   const data = SnapshotSchema.parse(migrated);
-  const allIds = [data.project.id, ...[data.nodes,data.documents,data.edges,data.nodeTypes,data.edgeTypes,data.entities,data.tags,data.outline].flatMap(xs => xs.map(x => x.id)), ...data.entities.flatMap(e => e.aliases.map(a => a.id)), ...data.nodeTypes.flatMap(t => t.fields.flatMap(f => [f.id, ...f.options.map(o => o.id)]))];
+  const allIds = [data.project.id, ...[data.nodes,data.documents,data.edges,data.nodeTypes,data.edgeTypes,data.entities,data.tags,data.outline,data.organizerFolders].flatMap(xs => xs.map(x => x.id)), ...data.entities.flatMap(e => e.aliases.map(a => a.id)), ...data.nodeTypes.flatMap(t => t.fields.flatMap(f => [f.id, ...f.options.map(o => o.id)]))];
   if (new Set(allIds).size !== allIds.length) throw new Error('IDが重複しています');
   if (data.sync.projectId !== data.project.id) throw new Error('同期情報のプロジェクトIDが一致しません');
   const docs = new Set(data.documents.map(d => d.id));
@@ -101,11 +112,22 @@ export function parseSnapshot(raw: unknown): Snapshot {
   }
   const outlineIds = new Set(data.outline.map(o => o.id));
   for (const o of data.outline) if ((o.parentId && !outlineIds.has(o.parentId)) || (o.nodeId && !nodes.has(o.nodeId))) throw new Error('アウトラインの参照先が見つかりません');
+  const folderIds = new Set(data.organizerFolders.map(folder => folder.id));
+  const folderNodeIds = new Set<string>();
+  for (const folder of data.organizerFolders) {
+    if (folder.parentId && !folderIds.has(folder.parentId)) throw new Error('整理フォルダーの親が見つかりません');
+    for (const nodeId of folder.nodeIds) {
+      if (!nodes.has(nodeId)) throw new Error('整理フォルダーのノードが見つかりません');
+      if (folderNodeIds.has(nodeId)) throw new Error('ノードは複数の整理フォルダーに登録できません');
+      folderNodeIds.add(nodeId);
+    }
+  }
   function checkCycles(items: { id: string; parent: string | null }[]) {
     const parents = new Map(items.map(x => [x.id, x.parent]));
     for (const item of items) { const seen = new Set<string>(); let current: string | null = item.id; while (current) { if (seen.has(current)) throw new Error('階層が循環しています'); seen.add(current); current = parents.get(current) ?? null; } }
   }
   checkCycles(data.nodes.map(n => ({ id: n.id, parent: n.parentGroupId })));
   checkCycles(data.outline.map(o => ({ id: o.id, parent: o.parentId })));
+  checkCycles(data.organizerFolders.map(folder => ({ id: folder.id, parent: folder.parentId })));
   return data;
 }

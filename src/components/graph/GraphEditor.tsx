@@ -4,8 +4,9 @@ import { ReactFlow, Background, Controls, MiniMap, Handle, Position, BaseEdge, N
 import '@xyflow/react/dist/style.css';
 import './graph.css';
 import { type ScenarioEdge, type Snapshot } from '../../domain/schema';
-import { addNodesToGroup, changeGraph, connect, createNode, deleteNodes, duplicateNode, filterNodes, GraphHistory, groupNodes, moveNodes, reorderNode, resizeNode, ungroup, updateNode } from '../../domain/graph';
+import { addNodesToGroup, changeGraph, changeNodesTag, connect, createNode, deleteNodes, duplicateNode, filterNodes, GraphHistory, groupNodes, moveNodes, moveNodesToParent, reorderNode, resizeNode, ungroup, updateNode } from '../../domain/graph';
 import { autoArrangeGraph } from '../../domain/layout';
+import { createOrganizerFolder, deleteOrganizerFolder, moveNodesToOrganizerFolder, renameOrganizerFolder } from '../../domain/organization';
 import { toFlowEdges, toFlowNodes, type CardNode, type ResizeNodeEnd, type ResizeNodeStart, type ScenarioFlowEdge } from './adapter';
 import ColorPicker from '../ColorPicker';
 import RichTextEditor from '../editor/RichTextEditor';
@@ -58,7 +59,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
   const latest = useRef(snapshot); latest.current = snapshot;
   const history = useRef(new GraphHistory());
   const { preferences: explorerPreferences, setPreferences: setExplorerPreferences } = useExplorerPreferences(snapshot.project.id, snapshot);
-  const [selected, setSelected] = useState<Set<string>>(() => new Set([initialSelectedNodeId ?? explorerPreferences.selectedNodeId ?? snapshot.nodes[0]?.id].filter((id): id is string => !!id)));
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(explorerPreferences.selectedNodeIds.length ? explorerPreferences.selectedNodeIds : [initialSelectedNodeId ?? explorerPreferences.selectedNodeId ?? snapshot.nodes[0]?.id].filter((id): id is string => !!id)));
   const [interactionMode, setInteractionMode] = useState<'pan' | 'select'>('pan');
   const [showToolPanel, setShowToolPanel] = useState(true);
   const [editorPanelOpen, setEditorPanelOpen] = useState(false);
@@ -88,7 +89,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
     if (!initialSelectedNodeId || initialFocusApplied.current === initialSelectedNodeId || !snapshot.nodes.some(item => item.id === initialSelectedNodeId)) return;
     initialFocusApplied.current = initialSelectedNodeId;
     setEdgeId(undefined); setSelected(new Set([initialSelectedNodeId]));
-    setExplorerPreferences(current => ({ ...current, selectedNodeId: initialSelectedNodeId }));
+    setExplorerPreferences(current => ({ ...current, selectedNodeId: initialSelectedNodeId, selectedNodeIds: [] }));
     const frame = window.requestAnimationFrame(() => flow.current?.fitView({ nodes: [{ id: initialSelectedNodeId }], duration: 450, padding: 0.38 }));
     return () => window.cancelAnimationFrame(frame);
   }, [initialSelectedNodeId, snapshot, setExplorerPreferences]);
@@ -177,7 +178,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
   }
   function selectNode(id: string) {
     setSelected(new Set([id])); setEdgeId(undefined);
-    setExplorerPreferences(current => ({ ...current, selectedNodeId: id }));
+    setExplorerPreferences(current => ({ ...current, selectedNodeId: id, selectedNodeIds: [] }));
     if (connecting) {
       if (!sourceId) setSourceId(id);
       else { commit(d => { connect(d, sourceId, id, kind); }); setSourceId(undefined); setConnecting(false); }
@@ -212,11 +213,13 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
   const onSelectionChange = useCallback(({ nodes: selectedNodes, edges: selectedEdges }: { nodes: CardNode[]; edges: ScenarioFlowEdge[] }) => {
     const next = new Set(selectedNodes.map(n => n.id));
     setSelected(old => old.size === next.size && [...old].every(id => next.has(id)) ? old : next);
+    setExplorerPreferences(current => ({ ...current, selectedNodeIds: [...next] }));
     if (selectedEdges[0]) setEdgeId(selectedEdges[0].id);
-  }, []);
-  const toggleNodeSelection = (id: string, checked: boolean) => { setEdgeId(undefined); setSelected(old => { const next = new Set(old); if (checked) next.add(id); else next.delete(id); return next; }); if (checked) setExplorerPreferences(current => ({ ...current, selectedNodeId: id })); };
+  }, [setExplorerPreferences]);
+  const toggleNodeSelection = (id: string, checked: boolean) => { setEdgeId(undefined); setSelected(old => { const next = new Set(old); if (checked) next.add(id); else next.delete(id); return next; }); setExplorerPreferences(current => ({ ...current, selectedNodeId: checked ? id : current.selectedNodeId, selectedNodeIds: checked ? [...new Set([...current.selectedNodeIds, id])] : current.selectedNodeIds.filter(selectedId => selectedId !== id) })); };
   const reorderExplorerNode = (sourceId: string, targetId: string, before: boolean) => commit(draft => reorderNode(draft, sourceId, targetId, before));
   const explorerExtras = <div className="graph-explorer-tools">
+    <p className="muted">複数選択：Ctrl/⌘＋クリック、または行メニューから選択</p>
     <button className="wide" disabled={!selected.size || disabled} onClick={() => { let id = ''; commit(d => { id = groupNodes(d, selected); }); if (id) { setSelected(new Set([id])); setExplorerPreferences(current => ({ ...current, selectedNodeId: id })); } }}>選択ノードをグループ化</button>
     <button className="wide" disabled={!canAddToGroup || disabled} title="既存グループと追加するノードを選択してください" onClick={() => { if (!addTargetGroupId) return; commit(d => addNodesToGroup(d, addTargetGroupId, selected)); setSelected(new Set([addTargetGroupId])); setExplorerPreferences(current => ({ ...current, selectedNodeId: addTargetGroupId })); }}>選択ノードを既存グループに追加</button>
     <details><summary>接続の表示</summary>{snapshot.edgeTypes.map(type => <label className="check" key={type.id}><input type="checkbox" checked={kinds.has(type.id)} onChange={e => setKinds(old => { const next = new Set(old); if (e.target.checked) next.add(type.id); else next.delete(type.id); return next; })}/>{type.name}</label>)}</details>
@@ -228,7 +231,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
     <nav className="graph-mobile-tabs" aria-label="グラフの画面">{[['list','ノード一覧'],['graph','グラフ'],['details','編集']].map(([id,label]) => <button key={id} aria-pressed={mobileTab === id} onClick={() => setMobileTab(id)}>{label}</button>)}</nav>
     {error && <div className="graph-error" role="alert">{error}</div>}
     <div className="graph-panes">
-      <ScenarioExplorer snapshot={snapshot} preferences={explorerPreferences} setPreferences={setExplorerPreferences} selectedIds={selected} onToggleNode={toggleNodeSelection} onOpenNode={selectNode} onCreateNode={addNode} onRenameNode={(id, title) => commit(d => updateNode(d, id, { title }))} onReorder={reorderExplorerNode} disabled={disabled} className={`graph-list ${left ? '' : 'pane-collapsed'}`} title="ノード" >{explorerExtras}</ScenarioExplorer>
+      <ScenarioExplorer snapshot={snapshot} preferences={explorerPreferences} setPreferences={setExplorerPreferences} selectedIds={selected} onToggleNode={toggleNodeSelection} onOpenNode={selectNode} onCreateNode={addNode} onRenameNode={(id, title) => commit(d => updateNode(d, id, { title }))} onReorder={reorderExplorerNode} onBulkTag={(ids, tagId, action) => commit(d => changeNodesTag(d, new Set(ids), tagId, action))} onBulkMove={(ids, parentId) => commit(d => moveNodesToParent(d, parentId, new Set(ids)))} onCreateFolder={(name, parentId) => commit(d => Object.assign(d, createOrganizerFolder(d, name, parentId)))} onRenameFolder={(id, name) => commit(d => Object.assign(d, renameOrganizerFolder(d, id, name)))} onDeleteFolder={id => commit(d => Object.assign(d, deleteOrganizerFolder(d, id)))} onBulkFolderMove={(ids, folderId) => commit(d => Object.assign(d, moveNodesToOrganizerFolder(d, ids, folderId)))} disabled={disabled} className={`graph-list ${left ? '' : 'pane-collapsed'}`} title="ノード" >{explorerExtras}</ScenarioExplorer>
       <div className="graph-center">
         <div className="connection-tools"><label>新規接続<select aria-label="新規接続の種類" value={kind} disabled={disabled} onChange={e => setKind(e.target.value)}>{snapshot.edgeTypes.map(type => <option value={type.id} key={type.id}>{type.name}</option>)}</select></label><button disabled={disabled} aria-pressed={connecting} onClick={() => { setConnecting(!connecting); setSourceId(undefined); }}>{connecting ? '接続モードを終了' : '接続モードを開始'}</button><span role="status">{connecting ? sourceId ? '接続先を選ぶか、接続点をドラッグ' : '接続元を選ぶか、接続点をドラッグ' : '接続モードを開始すると接続点が表示されます'}</span></div>
         <div className="flow-canvas" aria-label="シナリオグラフ" onContextMenu={event => event.preventDefault()}>
