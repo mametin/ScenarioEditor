@@ -12,9 +12,9 @@ UI → ドメイン操作／自動保存 → Repository → IndexedDB。
 
 ドメインにReact・Dexie・React Flow・Tiptapを持ち込まない。Repositoryと自動保存はUIに依存しない。Phase 1はReactの状態管理だけで足りるためZustandは未導入。CSSも小規模なためTailwind/shadcnは未導入。後続フェーズで必要性を再評価する。
 
-## 保存モデル v2
+## 保存モデル v3
 
-Project、ScenarioNode、ScenarioEdge、NodeTypeDefinition、FieldDefinition、ScenarioEntity、EntityAlias、Tag、OutlineItem、SyncMetadataをそれぞれ独立したZodスキーマと推論型として定義。加えてDocumentを定義し、本文をノードへ埋め込まずdocumentIdで関連付ける。構造化本文のルートはContent[]。
+Project、ScenarioNode、ScenarioEdge、NodeTypeDefinition、EdgeTypeDefinition、FieldDefinition、ScenarioEntity、EntityAlias、Tag、OutlineItem、SyncMetadataをそれぞれ独立したZodスキーマと推論型として定義。加えてDocumentを定義し、本文をノードへ埋め込まずdocumentIdで関連付ける。構造化本文のルートはContent[]。
 
 - UUIDは各プロジェクト内で一意・不変。JSONの復元コピーではProjectだけ新IDにし、内部のID参照は維持する。別プロジェクト間参照は扱わない。
 - フィールド値は判別可能なunionで型付けし、Field IDをキーに保存。タイプ変更やフィールド非表示で残存値を削除しない。タイプ定義にない旧フィールド値も保持する。
@@ -22,12 +22,13 @@ Project、ScenarioNode、ScenarioEdge、NodeTypeDefinition、FieldDefinition、S
 - ノードのpositionとOutlineItemのparentId/orderは別管理。同じノードを複数OutlineItemから参照できる。未登録ノードも維持する。
 - グラフのノード一覧はparentGroupIdからツリー表示する。兄弟ノードの一覧順はSnapshot.nodes配列順で保持し、並べ替えは同じ親の配列スロットだけを入れ替える。グラフ座標とアウトライン順には影響せず、グループの子階層も維持する。展開状態は表示設定として扱う。
 - エッジは多重接続・循環を許可。親グループとアウトラインの階層循環は禁止。
+- 接続タイプ定義はID・名称・色を持ち、ScenarioEdgeはタイプIDを参照する。線と矢印先端は同じタイプ色で描画し、設定画面で名称・色を編集できる。削除時は使用中エッジの付け替え先を選ばせる。
 - 本文の保存形式は独自のContent union。Tiptapの内部JSONを正本にはしない。Phase 3で双方向アダプターを実装し、非対応要素を破壊的に落とさない往復試験を追加する。
 - エンティティ参照はentityIdを常に保持し、aliasではaliasId、fixedでは固定表示文字列を追加する。本文の文字列置換は行わない。
 - 削除された本文・カスタムフィールド内のノード／エンティティ参照は将来の警告対象として保持する。一方、エッジ・アウトライン・本文所有者の構造参照切れは保存時に拒否する。全使用箇所の走査・UI警告はPhase 3で追加する。
 - 初期ノードタイプは本文・イベント・情報・設定資料。エンティティカテゴリは拡張可能な文字列とし、NPC・場所・用語・アイテムの選択UIはPhase 3で実装する。
 
-全スナップショットにschemaVersionを持たせる。strictObjectにより未知項目を黙って削除しない。未知版・不正データは書き込み前に拒否し、原本を保持する。読めないプロジェクトがある場合は初期化で上書きせずエラー表示して停止する（個別隔離・生データ救出UIは追加課題）。v2ではノード寸法を任意のwidth/heightとして保存する。
+全スナップショットにschemaVersionを持たせる。strictObjectにより未知項目を黙って削除しない。未知版・不正データは書き込み前に拒否し、原本を保持する。読めないプロジェクトがある場合は初期化で上書きせずエラー表示して停止する（個別隔離・生データ救出UIは追加課題）。v2でノード寸法を任意保存し、v3で接続タイプ定義を追加する。
 
 ## 保存・復元と競合
 
@@ -47,7 +48,7 @@ JSON取り込みは検証後、別Project IDで新規保存。同期メタデー
 
 ## マイグレーション方針
 
-v1→v2移行はノード寸法の任意項目を追加するだけの加算的変換とする。レコード、ID、本文、参照を変更・削除せず、既存プロジェクトは最初に保存される際に旧スナップショットを履歴へ保管してからv2として保存する。JSONの読み込みも同じ検証済み変換を通す。IndexedDBストア版とJSONのschemaVersionは別管理。
+v1→v2移行はノード寸法の任意項目、v2→v3移行は接続タイプ定義を追加する加算的変換とする。v2→v3では既存の4種のタイプIDとエッジを維持して初期名称・色を割り当てる。既存プロジェクトは最初に保存される際に旧スナップショットを履歴へ保管してから現行版として保存する。JSON読み込みも同じ検証済み変換を通す。IndexedDBストア版とJSONのschemaVersionは別管理。
 
 ## 外観設定
 

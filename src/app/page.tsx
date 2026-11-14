@@ -13,6 +13,7 @@ const RichTextEditor = dynamic(() => import('../components/editor/RichTextEditor
 const WritingWorkspace = dynamic(() => import('../components/WritingWorkspace'), { ssr: false });
 const EntityManager = dynamic(() => import('../components/entities/EntityManager'), { ssr: false });
 const NodeTypeManager = dynamic(() => import('../components/types/NodeTypeManager'), { ssr: false });
+const ConnectionTypeManager = dynamic(() => import('../components/types/ConnectionTypeManager'), { ssr: false });
 const TagManager = dynamic(() => import('../components/types/TagManager'), { ssr: false });
 const OutlineWorkspace = dynamic(() => import('../components/OutlineWorkspace'), { ssr: false });
 const EntityHoverCard = dynamic(() => import('../components/entities/EntityHoverCard'), { ssr: false });
@@ -198,7 +199,7 @@ export default function Home() {
     if (!active) return null;
     if (view === 'writing') return <WritingWorkspace key={`${active.project.id}-${openedNode ?? ''}`} snapshot={active} onChange={saveEditor} selectedNodeId={openedNode} onOpenEntity={id => { setOpenedEntity(id); setView('entities'); }}/>
     if (view === 'entities') return <EntityManager snapshot={active} onChange={saveEditor} selectedEntityId={openedEntity} onSelectEntity={setOpenedEntity} renderDescription={id => <RichTextEditor key={id} snapshot={active} documentId={id} onChange={saveEditor} onOpenEntity={setOpenedEntity} onOpenNode={id => { setOpenedNode(id); setView("writing"); }}/>} onSelectNode={id => { setOpenedNode(id); setView('writing'); }}/>
-    if (view === 'types') return <NodeTypeManager snapshot={active} onChange={saveEditor}/>;
+    if (view === 'types') return <><NodeTypeManager snapshot={active} onChange={saveEditor}/><ConnectionTypeManager snapshot={active} onChange={saveEditor}/></>;
     if (view === 'tags') return <TagManager snapshot={active} onChange={saveEditor}/>;
     if (view === 'outline') return <OutlineWorkspace snapshot={active} onChange={saveEditor} selectedNodeId={outlineTargetNodeId} focusOutlineItemId={focusOutlineItemId} onSelectNode={id => { setGraphFocusNodeId(id); setView('graph'); }}/>;
     return null;

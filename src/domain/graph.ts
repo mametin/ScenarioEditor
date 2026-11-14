@@ -1,7 +1,6 @@
 import { parseSnapshot, type Content, type ScenarioEdge, type ScenarioNode, type Snapshot } from './schema';
 import { resolveReference } from './project';
 
-export const edgeKinds = { progression: '進行', conditional: '条件分岐', reference: '参照', dependency: '依存' } as const;
 export type Point = { x: number; y: number };
 export function changeGraph(source: Snapshot, change: (draft: Snapshot) => void): Snapshot {
   const draft = structuredClone(source);

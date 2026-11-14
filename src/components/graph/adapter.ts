@@ -7,7 +7,6 @@ export type ResizeNodeStart = (id: string) => void;
 export type PreviewPart = { kind: 'text'; text: string } | { kind: 'break' } | { kind: 'entity'; entityId: string; text: string };
 export type CardNode = Node<{ title: string; preview: string; previewParts: PreviewPart[]; typeName: string; color: string; tags: string[]; children: number; match: boolean; minWidth: number; minHeight: number; resizable: boolean; onResizeStart?: ResizeNodeStart; onResizeEnd?: ResizeNodeEnd }, 'scenario'>;
 export type ScenarioFlowEdge = Edge<{ lane: number }, 'scenario'>;
-export const edgeColors = { progression: '#52745e', conditional: '#b57d37', reference: '#628aa5', dependency: '#92739c' };
 function plainText(content: Content[], snapshot: Snapshot): string {
   return content.map(item => {
     if (item.kind === 'text') return item.text;
@@ -94,6 +93,9 @@ export function toFlowEdges(data: Snapshot, matches: Set<string>, kinds: Set<str
   return data.edges.map(e => {
     const pair = pairs.get([e.sourceId, e.targetId].sort().join(':'))!;
     const offset = e.sourceId === e.targetId ? pair.indexOf(e.id) * 40 : (pair.indexOf(e.id) - (pair.length - 1) / 2) * 56 * (e.sourceId > e.targetId ? -1 : 1);
-    return { id: e.id, source: e.sourceId, target: e.targetId, type: 'scenario', label: e.label, selected: e.id === selectedId, hidden: !matches.has(e.sourceId) || !matches.has(e.targetId) || !kinds.has(e.kind), markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--accent)' }, style: { stroke: edgeColors[e.kind], strokeWidth: e.id === selectedId ? 3 : 1.8, strokeDasharray: e.kind === 'reference' ? '4 5' : e.kind === 'dependency' ? '10 4' : undefined }, data: { lane: offset }, ariaLabel: `${e.label || '接続'} (${e.kind})` };
+    const type = data.edgeTypes.find(item => item.id === e.kind);
+    const color = type?.color ?? 'var(--accent)';
+    const typeName = type?.name ?? e.kind;
+    return { id: e.id, source: e.sourceId, target: e.targetId, type: 'scenario', label: e.label, selected: e.id === selectedId, hidden: !matches.has(e.sourceId) || !matches.has(e.targetId) || !kinds.has(e.kind), markerEnd: { type: MarkerType.ArrowClosed, color }, style: { stroke: color, strokeWidth: e.id === selectedId ? 3 : 1.8, strokeDasharray: e.kind === 'reference' ? '4 5' : e.kind === 'dependency' ? '10 4' : undefined }, data: { lane: offset }, ariaLabel: `${e.label || '接続'} (${typeName})` };
   });
 }

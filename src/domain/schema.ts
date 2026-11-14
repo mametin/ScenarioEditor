@@ -31,10 +31,11 @@ export const FieldValueSchema = z.discriminatedUnion('kind', [
 const fields = z.record(id, FieldValueSchema);
 export const FieldDefinitionSchema = z.strictObject({ id, name: z.string(), kind: z.enum(['text','richText','number','boolean','singleSelect','multiSelect','date','entityReference','nodeReference']), hidden: z.boolean(), options: z.array(z.strictObject({ id, name: z.string() })) });
 export const NodeTypeDefinitionSchema = z.strictObject({ id, name: z.string(), icon: z.string(), color: z.string(), fields: z.array(FieldDefinitionSchema) });
+export const EdgeTypeDefinitionSchema = z.strictObject({ id: z.string().min(1), name: z.string(), color: z.string() });
 const nodeCore = { ...base, typeId: id, title: z.string(), documentId: id, fields, tagIds: z.array(id), position: z.strictObject({ x: z.number().finite(), y: z.number().finite() }), parentGroupId: id.nullable() };
 export const ScenarioNodeV1Schema = z.strictObject(nodeCore);
 export const ScenarioNodeSchema = z.strictObject({ ...nodeCore, size: z.strictObject({ width: z.number().finite().min(160).max(2500), height: z.number().finite().min(80).max(2500) }).optional() });
-export const ScenarioEdgeSchema = z.strictObject({ id, sourceId: id, targetId: id, kind: z.enum(['progression','conditional','reference','dependency']), label: z.string(), condition: z.string() });
+export const ScenarioEdgeSchema = z.strictObject({ id, sourceId: id, targetId: id, kind: z.string().min(1), label: z.string(), condition: z.string() });
 export const EntityAliasSchema = z.strictObject({ id, name: z.string() });
 export const ScenarioEntitySchema = z.strictObject({ ...base, category: z.string(), name: z.string(), aliases: z.array(EntityAliasSchema), descriptionDocumentId: id, fields, tagIds: z.array(id) });
 export const TagSchema = z.strictObject({ id, name: z.string(), color: z.string() });
@@ -43,11 +44,13 @@ export const SyncMetadataSchema = z.strictObject({ projectId: id, status: z.enum
 export const ProjectSchema = z.strictObject({ ...base, title: z.string(), description: z.string() });
 const snapshotCore = { project: ProjectSchema, documents: z.array(DocumentSchema), edges: z.array(ScenarioEdgeSchema), nodeTypes: z.array(NodeTypeDefinitionSchema), entities: z.array(ScenarioEntitySchema), tags: z.array(TagSchema), outline: z.array(OutlineItemSchema), sync: SyncMetadataSchema };
 const SnapshotV1Schema = z.strictObject({ schemaVersion: z.literal(1), ...snapshotCore, nodes: z.array(ScenarioNodeV1Schema) });
-export const SnapshotSchema = z.strictObject({ schemaVersion: z.literal(2), ...snapshotCore, nodes: z.array(ScenarioNodeSchema) });
+const SnapshotV2Schema = z.strictObject({ schemaVersion: z.literal(2), ...snapshotCore, nodes: z.array(ScenarioNodeSchema) });
+export const SnapshotSchema = z.strictObject({ schemaVersion: z.literal(3), ...snapshotCore, edgeTypes: z.array(EdgeTypeDefinitionSchema), nodes: z.array(ScenarioNodeSchema) });
 export type Project = z.infer<typeof ProjectSchema>;
 export type ScenarioNode = z.infer<typeof ScenarioNodeSchema>;
 export type ScenarioEdge = z.infer<typeof ScenarioEdgeSchema>;
 export type NodeTypeDefinition = z.infer<typeof NodeTypeDefinitionSchema>;
+export type EdgeTypeDefinition = z.infer<typeof EdgeTypeDefinitionSchema>;
 export type FieldDefinition = z.infer<typeof FieldDefinitionSchema>;
 export type ScenarioEntity = z.infer<typeof ScenarioEntitySchema>;
 export type EntityAlias = z.infer<typeof EntityAliasSchema>;
@@ -56,18 +59,32 @@ export type OutlineItem = z.infer<typeof OutlineItemSchema>;
 export type SyncMetadata = z.infer<typeof SyncMetadataSchema>;
 export type Snapshot = z.infer<typeof SnapshotSchema>;
 
+export const defaultEdgeTypes: EdgeTypeDefinition[] = [
+  { id: 'progression', name: '進行', color: '#52745e' },
+  { id: 'conditional', name: '条件分岐', color: '#b57d37' },
+  { id: 'reference', name: '参照', color: '#628aa5' },
+  { id: 'dependency', name: '依存', color: '#92739c' },
+];
+
 /** Additive v1 -> v2 migration: preserve all records and IDs; node sizes remain unset until edited. */
 export function migrateSnapshotV1ToV2(raw: unknown) {
   const version1 = SnapshotV1Schema.parse(raw);
   return { ...version1, schemaVersion: 2 as const };
 }
 
-/** Reject unsupported versions and unknown fields; only the additive v1 -> v2 migration is accepted. */
+/** Additive v2 -> v3 migration: keep all edge IDs/kinds and add editable defaults. */
+export function migrateSnapshotV2ToV3(raw: unknown) {
+  const version2 = SnapshotV2Schema.parse(raw);
+  return { ...version2, schemaVersion: 3 as const, edgeTypes: structuredClone(defaultEdgeTypes) };
+}
+
+/** Reject unsupported versions and unknown fields; migrations only add optional metadata. */
 export function parseSnapshot(raw: unknown): Snapshot {
   const version = raw && typeof raw === 'object' && 'schemaVersion' in raw ? raw.schemaVersion : undefined;
-  const migrated = version === 1 ? migrateSnapshotV1ToV2(raw) : raw;
+  const version2 = version === 1 ? migrateSnapshotV1ToV2(raw) : raw;
+  const migrated = version === 1 || version === 2 ? migrateSnapshotV2ToV3(version2) : raw;
   const data = SnapshotSchema.parse(migrated);
-  const allIds = [data.project.id, ...[data.nodes,data.documents,data.edges,data.nodeTypes,data.entities,data.tags,data.outline].flatMap(xs => xs.map(x => x.id)), ...data.entities.flatMap(e => e.aliases.map(a => a.id)), ...data.nodeTypes.flatMap(t => t.fields.flatMap(f => [f.id, ...f.options.map(o => o.id)]))];
+  const allIds = [data.project.id, ...[data.nodes,data.documents,data.edges,data.nodeTypes,data.edgeTypes,data.entities,data.tags,data.outline].flatMap(xs => xs.map(x => x.id)), ...data.entities.flatMap(e => e.aliases.map(a => a.id)), ...data.nodeTypes.flatMap(t => t.fields.flatMap(f => [f.id, ...f.options.map(o => o.id)]))];
   if (new Set(allIds).size !== allIds.length) throw new Error('IDが重複しています');
   if (data.sync.projectId !== data.project.id) throw new Error('同期情報のプロジェクトIDが一致しません');
   const docs = new Set(data.documents.map(d => d.id));
@@ -76,7 +93,7 @@ export function parseSnapshot(raw: unknown): Snapshot {
     if (!docs.has(n.documentId) || !data.nodeTypes.some(t => t.id === n.typeId)) throw new Error('ノードの本文またはタイプが見つかりません');
     if (n.parentGroupId && !nodes.has(n.parentGroupId)) throw new Error('親グループが見つかりません');
   }
-  for (const e of data.edges) if (!nodes.has(e.sourceId) || !nodes.has(e.targetId)) throw new Error('接続先が見つかりません');
+  for (const e of data.edges) if (!nodes.has(e.sourceId) || !nodes.has(e.targetId)) throw new Error('接続先が見つかりません'); else if (!data.edgeTypes.some(t => t.id === e.kind)) throw new Error('接続タイプが見つかりません');
   for (const e of data.entities) if (!docs.has(e.descriptionDocumentId)) throw new Error('設定資料の説明が見つかりません');
   for (const item of [...data.nodes, ...data.entities]) {
     if (item.tagIds.some(t => !data.tags.some(tag => tag.id === t))) throw new Error('タグが見つかりません');
