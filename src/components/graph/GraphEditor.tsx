@@ -5,6 +5,7 @@ import '@xyflow/react/dist/style.css';
 import './graph.css';
 import { type ScenarioEdge, type Snapshot } from '../../domain/schema';
 import { addNodesToGroup, changeGraph, connect, createNode, deleteNodes, duplicateNode, edgeKinds, filterNodes, GraphHistory, groupNodes, moveNodes, reorderNode, resizeNode, ungroup, updateNode } from '../../domain/graph';
+import { autoArrangeGraph } from '../../domain/layout';
 import { toFlowEdges, toFlowNodes, type CardNode, type ResizeNodeEnd, type ResizeNodeStart, type ScenarioFlowEdge } from './adapter';
 import ColorPicker from '../ColorPicker';
 import RichTextEditor from '../editor/RichTextEditor';
@@ -184,6 +185,12 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
     commit(d => { id = createNode(d, point, `ノード ${d.nodes.length + 1}`, typeFilter || d.nodeTypes[0].id); });
     if (id) { setSelected(new Set([id])); setEdgeId(undefined); setQuery(''); setTagFilter([]); }
   }
+  function autoArrange() {
+    if (snapshot.nodes.length < 2) return;
+    commit(draft => { draft.nodes = autoArrangeGraph(draft).nodes; });
+    setSelected(new Set()); setEdgeId(undefined); setConnecting(false); setSourceId(undefined);
+    window.requestAnimationFrame(() => flow.current?.fitView({ duration: 450, padding: 0.12 }));
+  }
   function removeSelection() {
     if (edge) { if (confirm('この接続を削除しますか？Undoで戻せます。')) { commit(d => { d.edges = d.edges.filter(e => e.id !== edge.id); }); setEdgeId(undefined); } return; }
     if (!selected.size) return;
@@ -249,7 +256,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
   }
   return <section className={`graph-workbench mobile-${mobileTab} ${connecting ? 'is-connecting' : ''} ${interactionMode === 'pan' ? 'is-pan-mode' : 'is-select-mode'}`} style={{ '--left-width': left ? `${leftWidth}px` : '0px', '--right-width': right ? `${rightWidth}px` : '0px' } as CSSProperties}
     onKeyDown={e => { if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"]')) return; if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); travel(e.shiftKey ? 'redo' : 'undo'); } }}>
-    <div className="graph-toolbar"><div><span className="eyebrow">SCENARIO MAP</span><strong>{snapshot.project.title || '無題のシナリオ'}</strong></div><div className="graph-actions"><button disabled={disabled} className="primary" onClick={addNode}>＋ ノード</button><button disabled={!history.current.canUndo || disabled} onClick={() => travel('undo')}>↶ Undo</button><button disabled={!history.current.canRedo || disabled} onClick={() => travel('redo')}>↷ Redo</button><button type="button" aria-pressed={showToolPanel} onClick={() => setShowToolPanel(value => !value)}>ツール</button><button type="button" disabled={!node} aria-pressed={editorPanelOpen} onClick={() => setEditorPanelOpen(value => !value)}>本文パネル</button><button onClick={() => setLeft(!left)} aria-pressed={left}>一覧</button><button onClick={() => setRight(!right)} aria-pressed={right}>詳細</button></div></div>
+    <div className="graph-toolbar"><div><span className="eyebrow">SCENARIO MAP</span><strong>{snapshot.project.title || '無題のシナリオ'}</strong></div><div className="graph-actions"><button disabled={disabled} className="primary" onClick={addNode}>＋ ノード</button><button type="button" disabled={disabled || snapshot.nodes.length < 2} title="接続関係とグループを保ってノードを整列します。Undoで戻せます。" onClick={autoArrange}>自動整列</button><button disabled={!history.current.canUndo || disabled} onClick={() => travel('undo')}>↶ Undo</button><button disabled={!history.current.canRedo || disabled} onClick={() => travel('redo')}>↷ Redo</button><button type="button" aria-pressed={showToolPanel} onClick={() => setShowToolPanel(value => !value)}>ツール</button><button type="button" disabled={!node} aria-pressed={editorPanelOpen} onClick={() => setEditorPanelOpen(value => !value)}>本文パネル</button><button onClick={() => setLeft(!left)} aria-pressed={left}>一覧</button><button onClick={() => setRight(!right)} aria-pressed={right}>詳細</button></div></div>
     <nav className="graph-mobile-tabs" aria-label="グラフの画面">{[['list','ノード一覧'],['graph','グラフ'],['details','編集']].map(([id,label]) => <button key={id} aria-pressed={mobileTab === id} onClick={() => setMobileTab(id)}>{label}</button>)}</nav>
     {error && <div className="graph-error" role="alert">{error}</div>}
     <div className="graph-panes">
