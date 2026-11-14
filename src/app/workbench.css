@@ -228,3 +228,25 @@ html .graph-floating-panel__header { background: color-mix(in srgb, var(--accent
   .command-search-backdrop { padding: 6dvh 8px 12px; }
   .command-search { max-height: 82dvh; }
 }
+:root { --ui-font: Consolas, 'Courier New', monospace; --scenario-font: 'Yu Gothic', 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif; --scenario-font-size: 18px; }
+html body { font-family: var(--ui-font); }
+html .scenario-prose, html .node-preview { font-family: var(--scenario-font); font-size: var(--scenario-font-size); }
+.activity-bar button small { max-width: 44px; font-size: 10px; line-height: 1.15; white-space: normal; }
+.activity-bar button[aria-current="page"] { min-height: 52px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent); font-weight: 700; }
+.mobile-primary-nav button small { font-size: 11px; line-height: 1.15; white-space: normal; }
+.mobile-primary-nav button[aria-current="page"] { outline: 1px solid color-mix(in srgb, var(--accent) 50%, var(--line)); outline-offset: -2px; font-weight: 700; }
+.appearance-select { display: grid; gap: 5px; color: var(--ink); font-size: 12px; }
+.appearance-select output { float: right; color: var(--accent); }
+.appearance-select select { width: 100%; min-height: 36px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--input-bg); color: var(--ink); font: inherit; }
+.appearance-select input[type="range"] { width: 100%; accent-color: var(--accent); }
+.contrast-check { display: grid; gap: 4px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 11px; }
+.contrast-check strong { font-size: 12px; }
+.contrast-check span { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); }
+.contrast-check p { margin: 3px 0 0; line-height: 1.45; }
+.contrast-check .contrast-ok { color: var(--accent); }
+.contrast-check .needs-attention { color: #a34d31; }
+.last-saved-time { margin: -8px 0 12px; color: var(--muted); font-size: 12px; }
+.last-saved-inline { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.activity-bar button { min-height: 52px; }
+.mobile-primary-nav button { min-height: 54px; }
+@media (max-width: 700px) { .app.has-project { padding-bottom: calc(74px + env(safe-area-inset-bottom)); } }

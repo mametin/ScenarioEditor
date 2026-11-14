@@ -25,6 +25,9 @@ const screens = [
 ] as const;
 const screenLabels = Object.fromEntries(screens.map(screen => [screen.id, screen.label])) as Record<(typeof screens)[number]['id'], string>;
 function darkenHex(hex: string, amount: number) { return `#${[1, 3, 5].map(index => Math.round(parseInt(hex.slice(index, index + 2), 16) * (1 - amount)).toString(16).padStart(2, '0')).join('')}`; }
+function mixHex(first: string, second: string, amount: number) { return `#${[1, 3, 5].map(index => Math.round(parseInt(first.slice(index, index + 2), 16) * (1 - amount) + parseInt(second.slice(index, index + 2), 16) * amount).toString(16).padStart(2, '0')).join('')}`; }
+function luminance(hex: string) { const channels = [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16) / 255).map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4); return channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722; }
+function contrastRatio(first: string, second: string) { const [bright, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a); return (bright + .05) / (dark + .05); }
 function formatBytes(bytes: number) { if (bytes < 1024) return `${bytes} B`; const units = ['KB', 'MB', 'GB']; let value = bytes / 1024; let unit = 0; while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; } return `${value.toFixed(value >= 100 ? 0 : 1)} ${units[unit]}`; }
 export default function Home() {
   const [projects, setProjects] = useState<Stored[]>([]);
@@ -46,30 +49,47 @@ export default function Home() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [themeColor, setThemeColor] = useState('#476955');
   const [backgroundColor, setBackgroundColor] = useState('#f5f4ef');
+  const [uiFont, setUiFont] = useState<'mono' | 'sans'>('mono');
+  const [bodyFont, setBodyFont] = useState<'sans' | 'serif' | 'mono'>('sans');
+  const [bodyFontSize, setBodyFontSize] = useState(18);
   const [themeReady, setThemeReady] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [navExpanded, setNavExpanded] = useState(false);
   const [lastBackupAt, setLastBackupAt] = useState<string>();
+  const [lastSavedAt, setLastSavedAt] = useState<string>();
   const [storageEstimate, setStorageEstimate] = useState<{ usage: number; quota?: number }>();
   const repo = useRef<ProjectRepository | undefined>(undefined);
   const saver = useRef<Autosave | undefined>(undefined);
+  const lastSaveState = useRef<SaveStatus>('saved');
   const current = useRef<Snapshot | undefined>(undefined);
   function report(e: unknown) { setError(e instanceof Error ? e.message : '処理に失敗しました'); }
   useEffect(() => {
     let initial: 'light' | 'dark' = 'light';
     let color = '#476955';
     let background = '#f5f4ef';
+    let initialUiFont: 'mono' | 'sans' = 'mono';
+    let initialBodyFont: 'sans' | 'serif' | 'mono' = 'sans';
+    let initialBodyFontSize = 18;
     try {
       if (localStorage.getItem('scenario-editor-theme') === 'dark') initial = 'dark';
       const savedColor = localStorage.getItem('scenario-editor-theme-color');
       if (savedColor && /^#[0-9a-f]{6}$/i.test(savedColor)) color = savedColor;
       const savedBackground = localStorage.getItem('scenario-editor-background-color');
       if (savedBackground && /^#[0-9a-f]{6}$/i.test(savedBackground)) background = savedBackground;
+      const savedUiFont = localStorage.getItem('scenario-editor-ui-font');
+      if (savedUiFont === 'mono' || savedUiFont === 'sans') initialUiFont = savedUiFont;
+      const savedBodyFont = localStorage.getItem('scenario-editor-body-font');
+      if (savedBodyFont === 'sans' || savedBodyFont === 'serif' || savedBodyFont === 'mono') initialBodyFont = savedBodyFont;
+      const savedBodySize = Number(localStorage.getItem('scenario-editor-body-font-size'));
+      if (Number.isInteger(savedBodySize) && savedBodySize >= 14 && savedBodySize <= 24) initialBodyFontSize = savedBodySize;
     } catch { /* Appearance is a preference; the app remains usable when storage is blocked. */ }
     document.documentElement.dataset.theme = initial;
     document.documentElement.style.setProperty('--accent', color);
     document.documentElement.style.setProperty('--theme-background', background);
-    setTheme(initial); setThemeColor(color); setBackgroundColor(background); setThemeReady(true);
+    document.documentElement.style.setProperty('--ui-font', initialUiFont === 'mono' ? "Consolas, 'Courier New', monospace" : "Arial, 'Yu Gothic', Meiryo, sans-serif");
+    document.documentElement.style.setProperty('--scenario-font', initialBodyFont === 'serif' ? "'Yu Mincho', 'Hiragino Mincho ProN', serif" : initialBodyFont === 'mono' ? "Consolas, 'Courier New', monospace" : "'Yu Gothic', 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif");
+    document.documentElement.style.setProperty('--scenario-font-size', `${initialBodyFontSize}px`);
+    setTheme(initial); setThemeColor(color); setBackgroundColor(background); setUiFont(initialUiFont); setBodyFont(initialBodyFont); setBodyFontSize(initialBodyFontSize); setThemeReady(true);
   }, []);
   useEffect(() => {
     if (!themeReady) return;
@@ -87,6 +107,23 @@ export default function Home() {
     document.documentElement.style.setProperty('--theme-background', backgroundColor);
     try { localStorage.setItem('scenario-editor-background-color', backgroundColor); } catch { /* Keep the current-session choice even if it cannot be persisted. */ }
   }, [backgroundColor, themeReady]);
+  useEffect(() => {
+    if (!themeReady) return;
+    const value = uiFont === 'mono' ? "Consolas, 'Courier New', monospace" : "Arial, 'Yu Gothic', Meiryo, sans-serif";
+    document.documentElement.style.setProperty('--ui-font', value);
+    try { localStorage.setItem('scenario-editor-ui-font', uiFont); } catch { /* Keep this session's preference when browser storage is unavailable. */ }
+  }, [uiFont, themeReady]);
+  useEffect(() => {
+    if (!themeReady) return;
+    const value = bodyFont === 'serif' ? "'Yu Mincho', 'Hiragino Mincho ProN', serif" : bodyFont === 'mono' ? "Consolas, 'Courier New', monospace" : "'Yu Gothic', 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif";
+    document.documentElement.style.setProperty('--scenario-font', value);
+    try { localStorage.setItem('scenario-editor-body-font', bodyFont); } catch { /* Keep this session's preference when browser storage is unavailable. */ }
+  }, [bodyFont, themeReady]);
+  useEffect(() => {
+    if (!themeReady) return;
+    document.documentElement.style.setProperty('--scenario-font-size', `${bodyFontSize}px`);
+    try { localStorage.setItem('scenario-editor-body-font-size', String(bodyFontSize)); } catch { /* Keep this session's preference when browser storage is unavailable. */ }
+  }, [bodyFontSize, themeReady]);
   useEffect(() => {
     try { setNavExpanded(localStorage.getItem('scenario-editor-nav-expanded') === 'true'); }
     catch { setNavExpanded(false); }
@@ -118,8 +155,9 @@ export default function Home() {
   }, []);
   function select(row: Stored) {
     setEditorSession(value => value + 1);
-    current.current = row.snapshot; setActive(row.snapshot); setHistory([]); setError(''); setStatus('saved');
-    saver.current = new Autosave(repo.current!, row.revision, (state, message) => { setStatus(state); if (message) setError(message); else if (state === 'saved') setError(''); });
+    current.current = row.snapshot; setActive(row.snapshot); setHistory([]); setError(''); setStatus('saved'); setLastSavedAt(row.savedAt);
+    lastSaveState.current = 'saved';
+    saver.current = new Autosave(repo.current!, row.revision, (state, message) => { setStatus(state); if (message) setError(message); else if (state === 'saved') { setError(''); if (lastSaveState.current === 'saving') setLastSavedAt(new Date().toISOString()); } lastSaveState.current = state; });
   }
   useEffect(() => {
     const db = new ScenarioDatabase(); const repository = new ProjectRepository(db); repo.current = repository;
@@ -165,8 +203,12 @@ export default function Home() {
     if (view === 'outline') return <OutlineWorkspace snapshot={active} onChange={saveEditor} selectedNodeId={outlineTargetNodeId} focusOutlineItemId={focusOutlineItemId} onSelectNode={id => { setGraphFocusNodeId(id); setView('graph'); }}/>;
     return null;
   }
+  const contrastSurface = theme === 'dark' ? mixHex(backgroundColor, '#000000', .8) : mixHex(backgroundColor, '#ffffff', .92);
+  const accentOnSurface = contrastRatio(themeColor, contrastSurface);
+  const whiteOnAccent = contrastRatio('#ffffff', themeColor);
+  const contrastNeedsAttention = accentOnSurface < 4.5 || whiteOnAccent < 4.5;
   return <div className={`app${view === 'graph' ? ' graph-mode' : ''}${focus ? ' focus' : ''}${active ? ' has-project' : ''}${active && view !== 'overview' ? ' workspace-mode' : ''}${navExpanded ? ' is-nav-expanded' : ''}`}>
-    <header className="topbar"><a className="brand" href="/" aria-label="Scenario Editor ホーム">◈ <span>SCENARIO <b>EDITOR</b></span></a><div className="topbar-context"><strong>{active?.project.title || 'Scenario Editor'}</strong><span>{active ? ` / ${screenLabels[view]}` : ' / シナリオ執筆環境'}</span></div><button type="button" className="search-launch" disabled={!active} aria-keyshortcuts="Control+K Meta+K" onClick={() => setSearchOpen(true)}>検索 <kbd>Ctrl K</kbd></button><div className="appearance-controls">{view === 'overview' && <button className="focus-toggle" onClick={() => setFocus(!focus)}>{focus ? '通常表示' : '集中表示'}</button>}<details className="appearance-settings"><summary>外観</summary><div className="appearance-picker-list"><ColorPicker label="テーマカラー" value={themeColor} onChange={setThemeColor}/><ColorPicker label="背景色" value={backgroundColor} onChange={setBackgroundColor}/></div></details><button className="theme-toggle" aria-label={theme === 'dark' ? 'ライトモードに切り替え' : 'ダークモードに切り替え'} aria-pressed={theme === 'dark'} onClick={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? '☀ ライト' : '☾ ダーク'}</button></div></header>
+    <header className="topbar"><a className="brand" href="/" aria-label="Scenario Editor ホーム">◈ <span>SCENARIO <b>EDITOR</b></span></a><div className="topbar-context"><strong>{active?.project.title || 'Scenario Editor'}</strong><span>{active ? ` / ${screenLabels[view]}` : ' / シナリオ執筆環境'}</span></div><button type="button" className="search-launch" disabled={!active} aria-keyshortcuts="Control+K Meta+K" onClick={() => setSearchOpen(true)}>検索 <kbd>Ctrl K</kbd></button><div className="appearance-controls">{view === 'overview' && <button className="focus-toggle" onClick={() => setFocus(!focus)}>{focus ? '通常表示' : '集中表示'}</button>}<details className="appearance-settings"><summary>外観</summary><div className="appearance-picker-list"><ColorPicker label="テーマカラー" value={themeColor} onChange={setThemeColor}/><ColorPicker label="背景色" value={backgroundColor} onChange={setBackgroundColor}/><label className="appearance-select">UIフォント<select value={uiFont} onChange={event => setUiFont(event.target.value as typeof uiFont)}><option value="mono">Consolas / Courier New</option><option value="sans">ゴシック体</option></select></label><label className="appearance-select">本文フォント<select value={bodyFont} onChange={event => setBodyFont(event.target.value as typeof bodyFont)}><option value="sans">ゴシック体</option><option value="serif">明朝体</option><option value="mono">Consolas / Courier New</option></select></label><label className="appearance-select">本文サイズ <output>{bodyFontSize}px</output><input type="range" min="14" max="24" step="1" value={bodyFontSize} onChange={event => setBodyFontSize(Number(event.target.value))}/></label><section className="contrast-check" aria-live="polite"><strong>テーマ色のコントラスト</strong><span>テーマ色／画面面 <b>{accentOnSurface.toFixed(1)}:1</b></span><span>白文字／テーマ色 <b>{whiteOnAccent.toFixed(1)}:1</b></span><p className={contrastNeedsAttention ? 'needs-attention' : 'contrast-ok'}>{contrastNeedsAttention ? '4.5:1を下回る組み合わせがあります。テーマ色または背景色を調整してください。' : '通常サイズの文字で読みやすさの目安を満たしています。'}</p></section></div></details><button className="theme-toggle" aria-label={theme === 'dark' ? 'ライトモードに切り替え' : 'ダークモードに切り替え'} aria-pressed={theme === 'dark'} onClick={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? '☀ ライト' : '☾ ダーク'}</button></div></header>
     {active && <nav className={`activity-bar${navExpanded ? ' is-expanded' : ''}`} aria-label="作業画面"><button className="activity-bar__toggle" type="button" aria-label={navExpanded ? 'ナビゲーションを折りたたむ' : 'ナビゲーションを展開'} aria-expanded={navExpanded} title={navExpanded ? 'ナビゲーションを折りたたむ' : 'ナビゲーションを展開'} onClick={() => { const next = !navExpanded; setNavExpanded(next); try { localStorage.setItem('scenario-editor-nav-expanded', String(next)); } catch { /* Keep the current-session setting when browser storage is unavailable. */ } }}><span aria-hidden="true">{navExpanded ? '‹' : '›'}</span><small>{navExpanded ? 'ナビを閉じる' : 'ナビを開く'}</small></button><div className="activity-bar__divider"/><p className="activity-bar__heading">{navExpanded ? 'WORKSPACE' : ' '}</p>{screens.map(screen => <button className="activity-bar__item" key={screen.id} type="button" title={screen.label} aria-label={screen.label} aria-current={view === screen.id ? 'page' : undefined} onClick={() => setView(screen.id)}><span aria-hidden="true">{screen.icon}</span><small>{screen.label}</small></button>)}</nav>}
     <div className="workspace" hidden={view !== 'overview'} style={view !== 'overview' ? { display: 'none' } : undefined}>
       <aside className="sidebar"><div className="eyebrow">YOUR WORKSPACE</div><h2>シナリオ</h2><button className="primary wide" disabled={!ready || busy} onClick={() => void run(async () => { await settle(); const row = await repo.current!.save(createProject(), 0); await refresh(); select(row); })}>＋ 新規プロジェクト</button>
@@ -181,14 +223,14 @@ export default function Home() {
           <div className="stats">{[['ノード', active.nodes.length],['設定資料', active.entities.length],['アウトライン', active.outline.length]].map(([label,count]) => <div key={label}><strong>{count}</strong><span>{label}</span></div>)}</div>
         </>}
       </main>
-      <aside className="details"><div className="eyebrow">PROJECT STATUS</div><h2>保存とバックアップ</h2><div className={`status ${status}`}><i/>{labels[status]}</div><p className="muted">{online ? 'オンライン' : 'オフライン'} · 保存先はこの端末</p><button className="wide" disabled={!active} onClick={download}>↓ JSONバックアップ</button><button className="wide" disabled={!active || busy} onClick={() => void run(async () => { await settle(); setHistory(await repo.current!.revisions(active!.project.id)); })}>保存履歴を表示</button>
+      <aside className="details"><div className="eyebrow">PROJECT STATUS</div><h2>保存とバックアップ</h2><div className={`status ${status}`}><i/>{labels[status]}</div><p className="muted">{online ? 'オンライン' : 'オフライン'} · 保存先はこの端末</p><p className="last-saved-time">最終保存: {lastSavedAt ? new Date(lastSavedAt).toLocaleString('ja-JP') : 'まだ保存されていません'}</p><button className="wide" disabled={!active} onClick={download}>↓ JSONバックアップ</button><button className="wide" disabled={!active || busy} onClick={() => void run(async () => { await settle(); setHistory(await repo.current!.revisions(active!.project.id)); })}>保存履歴を表示</button>
         <section className="storage-health" aria-label="データ保護状況"><h3>データ保護</h3><p className="backup-age">{lastBackupAt ? `最終ダウンロード: ${new Date(lastBackupAt).toLocaleString('ja-JP')}` : 'このプロジェクトのJSON退避履歴はありません'}</p>{storageEstimate && <>{storageEstimate.quota && <><label htmlFor="site-storage-meter">このサイトの保存領域（概算）</label><progress id="site-storage-meter" max="100" value={Math.min(100, storageEstimate.usage / storageEstimate.quota * 100)}/></>}<small>{formatBytes(storageEstimate.usage)} 使用{storageEstimate.quota ? ` / ${formatBytes(storageEstimate.quota)} 推定上限` : ''} · ブラウザの概算値</small></>}{(!lastBackupAt || Date.now() - new Date(lastBackupAt).getTime() > 30 * 24 * 60 * 60 * 1000) && <p className="backup-reminder">JSONファイルを端末へ退避しておくと、ブラウザのデータ消去後も復元できます。</p>}</section>
         {history.length > 0 && <div className="history">{history.map(row => <div key={row.revision}><small>保存 #{row.revision}<br/>{new Date(row.savedAt).toLocaleString('ja-JP')}</small><button disabled={busy} onClick={() => { if (confirm('この履歴を復元しますか？現在の保存内容も履歴に残ります。')) void run(async () => { await settle(); const restored = await repo.current!.restore(active!.project.id, row.revision, saver.current!.revision); select(restored); await refresh(); }); }}>復元</button></div>)}</div>}
         <div className="roadmap"><div className="eyebrow">DEVELOPMENT NOTES</div><h3>執筆環境を、少しずつ。</h3><p>プロジェクト保存とノードグラフを利用できます。</p><ol><li className="done">ローカル保存基盤</li><li className="done">ノードグラフ</li><li>本文・設定資料</li><li>アウトライン・出力</li><li>GitHub連携</li><li>モバイル・PWA</li></ol></div>
       </aside>
     </div>
     {active && view !== 'overview' && <div className="workspace-surface">
-      <div className="graph-savebar"><span className={status === 'error' ? 'save-error' : ''} role="status">{labels[status]}</span><span>{online ? 'オンライン' : 'オフライン'}</span><span className="backup-inline">{lastBackupAt ? `JSON退避 ${new Date(lastBackupAt).toLocaleDateString('ja-JP')}` : 'JSON未退避'}</span><button onClick={download}>JSONバックアップ</button></div>
+      <div className="graph-savebar"><span className={status === 'error' ? 'save-error' : ''} role="status">{labels[status]}</span><span>{online ? 'オンライン' : 'オフライン'}</span><span className="last-saved-inline" title={lastSavedAt ? new Date(lastSavedAt).toLocaleString('ja-JP') : undefined}>最終保存 {lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : '—'}</span><span className="backup-inline">{lastBackupAt ? `JSON退避 ${new Date(lastBackupAt).toLocaleDateString('ja-JP')}` : 'JSON未退避'}</span><button onClick={download}>JSONバックアップ</button></div>
       {error && <div className="error" role="alert">{error}<button onClick={() => void saver.current?.flush()}>保存を再試行</button><button onClick={download}>未保存JSONを退避</button></div>}
       {view === 'graph' && <GraphEditor key={`${active.project.id}-${editorSession}`} snapshot={active} disabled={busy} initialSelectedNodeId={graphFocusNodeId} onOpenOutline={(itemId, nodeId) => { setFocusOutlineItemId(itemId); setOutlineTargetNodeId(nodeId); setView('outline'); }} onWriteNode={id => { setOpenedNode(id); setView("writing"); }} onOpenEntity={id => { setOpenedEntity(id); setView('entities'); }} onChange={data => { current.current = data; setActive(data); saver.current!.enqueue(data); }}/>}
       {view !== 'graph' && <div className="phase-three-panel">{PhaseThreeContent()}</div>}
