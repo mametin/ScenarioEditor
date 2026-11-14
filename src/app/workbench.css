@@ -152,6 +152,7 @@ html :focus-visible { outline-color: var(--accent); }
 .command-search-result__body small, .command-search-result__excerpt { color: var(--muted); font-size: 11px; }
 .command-search kbd { flex: none; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); font: inherit; font-size: 10px; }
 .command-search>footer { display: flex; gap: 18px; padding: 8px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
+.command-search-more{align-self:center;margin:8px;padding:6px 10px;font-size:12px}
 
 html .editor, html .type-manager, html .custom-fields, html .tag-manager,
 html .outline-content > section, html .outline-content > aside,

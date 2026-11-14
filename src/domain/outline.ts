@@ -39,6 +39,15 @@ export function removeOutlineItem(snapshot: Snapshot, id: string): Snapshot {
   if (!snapshot.outline.some(item => item.id === id)) return snapshot;
   // Promote child sections in place. Node data and graph coordinates are untouched.
   const item = snapshot.outline.find(entry => entry.id === id)!;
-  const outline = snapshot.outline.filter(entry => entry.id !== id).map(entry => entry.parentId === id ? { ...entry, parentId: item.parentId } : entry);
+  const siblings = snapshot.outline.filter(entry => entry.parentId === item.parentId).sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  const index = siblings.findIndex(entry => entry.id === id);
+  const promoted = snapshot.outline.filter(entry => entry.parentId === id).sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  const orderedSiblings = [...siblings.slice(0, index), ...promoted, ...siblings.slice(index + 1)];
+  const orderById = new Map(orderedSiblings.map((entry, order) => [entry.id, order]));
+  const outline = snapshot.outline.filter(entry => entry.id !== id).map(entry => {
+    if (entry.parentId === id) return { ...entry, parentId: item.parentId, order: orderById.get(entry.id)! };
+    if (entry.parentId === item.parentId && orderById.has(entry.id)) return { ...entry, order: orderById.get(entry.id)! };
+    return entry;
+  });
   return parseSnapshot({ ...snapshot, outline, project: { ...snapshot.project, updatedAt: new Date().toISOString() } });
 }

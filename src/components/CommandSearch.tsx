@@ -10,16 +10,19 @@ export default function CommandSearch({ snapshot, onClose, onOpen }: {
 }) {
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
+  const [resultLimit, setResultLimit] = useState(40);
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
-  const results = useMemo(() => searchScenario(snapshot, query), [snapshot, query]);
+  const allVisibleResults = useMemo(() => searchScenario(snapshot, query, resultLimit + 1), [snapshot, query, resultLimit]);
+  const hasMore = allVisibleResults.length > resultLimit;
+  const results = hasMore ? allVisibleResults.slice(0, resultLimit) : allVisibleResults;
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     inputRef.current?.focus();
     return () => previousFocus?.focus();
   }, []);
-  useEffect(() => { setActiveIndex(0); }, [query]);
+  useEffect(() => { setActiveIndex(0); setResultLimit(40); }, [query]);
 
   function choose(result: ScenarioSearchResult | undefined) {
     if (!result) return;
@@ -28,6 +31,7 @@ export default function CommandSearch({ snapshot, onClose, onOpen }: {
 
   return <div className="command-search-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section ref={dialogRef} className="command-search" role="dialog" aria-modal="true" aria-labelledby="command-search-title" onKeyDown={event => {
+      if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
       if (event.key === 'Escape') { event.preventDefault(); onClose(); }
       else if (event.key === 'ArrowDown' && results.length) { event.preventDefault(); setActiveIndex(index => (index + 1) % results.length); }
       else if (event.key === 'ArrowUp' && results.length) { event.preventDefault(); setActiveIndex(index => (index - 1 + results.length) % results.length); }
@@ -49,7 +53,8 @@ export default function CommandSearch({ snapshot, onClose, onOpen }: {
           <kbd>Enter</kbd>
         </button>)}
       </div>
-      <footer><span>↑↓ 移動</span><span>Enter 開く</span><span>Esc 閉じる</span></footer>
+      {hasMore && <button type="button" className="command-search-more" onClick={() => setResultLimit(limit => limit + 40)}>次の検索結果を表示（{resultLimit + 1}件目以降）</button>}
+      <footer><span>{hasMore ? `上位${resultLimit}件を表示中` : `${results.length}件`}</span><span>↑↓ 移動</span><span>Enter 開く</span><span>Esc 閉じる</span></footer>
     </section>
   </div>;
 }

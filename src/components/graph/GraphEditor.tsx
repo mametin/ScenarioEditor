@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { ReactFlow, Background, Controls, MiniMap, Handle, Position, BaseEdge, NodeResizeControl, applyNodeChanges, type NodeProps, type EdgeProps, type NodeChange, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import './graph.css';
@@ -11,6 +11,7 @@ import ColorPicker from '../ColorPicker';
 import RichTextEditor from '../editor/RichTextEditor';
 import FloatingPanel, { type PanelPosition } from './FloatingPanel';
 import { showEntityHover, hideEntityHover } from '../entities/entity-hover';
+import ScenarioExplorer, { useExplorerPreferences } from '../explorer/ScenarioExplorer';
 
 function NodeCard({ id, data, selected }: NodeProps<CardNode>) {
   return <div className={`node-card ${data.children ? 'group-card' : ''} ${selected ? 'chosen' : ''} ${data.match ? '' : 'context-node'}`} style={{ '--node-color': data.color } as CSSProperties}>
@@ -56,22 +57,19 @@ function ResizeHandle({ side, width, onResize }: { side: 'left' | 'right'; width
 export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEntity, onOpenOutline, initialSelectedNodeId, disabled = false }: { snapshot: Snapshot; onChange: (snapshot: Snapshot) => void; disabled?: boolean; onWriteNode?: (id: string) => void; onOpenEntity?: (id: string) => void; onOpenOutline?: (itemId?: string, nodeId?: string) => void; initialSelectedNodeId?: string }) {
   const latest = useRef(snapshot); latest.current = snapshot;
   const history = useRef(new GraphHistory());
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const { preferences: explorerPreferences, setPreferences: setExplorerPreferences } = useExplorerPreferences(snapshot.project.id, snapshot);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set([initialSelectedNodeId ?? explorerPreferences.selectedNodeId ?? snapshot.nodes[0]?.id].filter((id): id is string => !!id)));
   const [interactionMode, setInteractionMode] = useState<'pan' | 'select'>('pan');
   const [showToolPanel, setShowToolPanel] = useState(true);
   const [editorPanelOpen, setEditorPanelOpen] = useState(false);
   const [panelPositions, setPanelPositions] = useState<{ tools: PanelPosition; editor: PanelPosition }>({ tools: { x: 300, y: 210 }, editor: { x: 650, y: 210 } });
   const [panelOrder, setPanelOrder] = useState<string[]>(['tools', 'editor']);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const [dropTarget, setDropTarget] = useState<{ id: string; before: boolean } | null>(null);
-  const [draggedNodeId, setDraggedNodeId] = useState<string>();
   const [edgeId, setEdgeId] = useState<string>();
-  const [query, setQuery] = useState(''); const [typeFilter, setTypeFilter] = useState(''); const [tagFilter, setTagFilter] = useState<string[]>([]); const [tagMode, setTagMode] = useState<'and' | 'or'>('or');
   const [kinds, setKinds] = useState(new Set<string>(snapshot.edgeTypes.map(type => type.id)));
   const [kind, setKind] = useState<ScenarioEdge['kind']>(snapshot.edgeTypes[0]?.id ?? 'progression');
   const [connecting, setConnecting] = useState(false); const [sourceId, setSourceId] = useState<string>();
   const [error, setError] = useState(''); const [newTag, setNewTag] = useState('');
-  const [left, setLeft] = useState(true); const [right, setRight] = useState(true); const [leftWidth, setLeftWidth] = useState(240); const [rightWidth, setRightWidth] = useState(288);
+  const [left, setLeft] = useState(true); const [right, setRight] = useState(true); const [rightWidth, setRightWidth] = useState(288);
   const [mobileTab, setMobileTab] = useState('graph');
   const [groupColors, setGroupColors] = useState<Record<string, string>>({});
   const groupColorKey = `scenario-editor-group-colors:${snapshot.project.id}`;
@@ -79,7 +77,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
   const flow = useRef<ReactFlowInstance<CardNode, ScenarioFlowEdge> | null>(null);
   const initialFocusApplied = useRef<string | undefined>(undefined);
   const dragging = useRef(false);
-  const matches = useMemo(() => filterNodes(snapshot, query, typeFilter, tagFilter, tagMode), [snapshot, query, typeFilter, tagFilter, tagMode]);
+  const matches = useMemo(() => filterNodes(snapshot, explorerPreferences.query, explorerPreferences.typeId, explorerPreferences.tagIds, explorerPreferences.tagMode), [snapshot, explorerPreferences.query, explorerPreferences.typeId, explorerPreferences.tagIds, explorerPreferences.tagMode]);
   const [nodes, setNodes] = useState<CardNode[]>(() => toFlowNodes(snapshot, matches, selected, {}, undefined, undefined, !disabled && !connecting));
   const nodesRef = useRef(nodes); nodesRef.current = nodes;
   const resizing = useRef(false);
@@ -90,9 +88,13 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
     if (!initialSelectedNodeId || initialFocusApplied.current === initialSelectedNodeId || !snapshot.nodes.some(item => item.id === initialSelectedNodeId)) return;
     initialFocusApplied.current = initialSelectedNodeId;
     setEdgeId(undefined); setSelected(new Set([initialSelectedNodeId]));
+    setExplorerPreferences(current => ({ ...current, selectedNodeId: initialSelectedNodeId }));
     const frame = window.requestAnimationFrame(() => flow.current?.fitView({ nodes: [{ id: initialSelectedNodeId }], duration: 450, padding: 0.38 }));
     return () => window.cancelAnimationFrame(frame);
-  }, [initialSelectedNodeId, snapshot]);
+  }, [initialSelectedNodeId, snapshot, setExplorerPreferences]);
+  useEffect(() => {
+    if (!explorerPreferences.selectedNodeId && snapshot.nodes[0]) setExplorerPreferences(current => ({ ...current, selectedNodeId: snapshot.nodes[0].id }));
+  }, [explorerPreferences.selectedNodeId, snapshot.nodes, setExplorerPreferences]);
   useEffect(() => {
     const handleModeShortcut = (event: KeyboardEvent) => {
       if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
@@ -175,6 +177,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
   }
   function selectNode(id: string) {
     setSelected(new Set([id])); setEdgeId(undefined);
+    setExplorerPreferences(current => ({ ...current, selectedNodeId: id }));
     if (connecting) {
       if (!sourceId) setSourceId(id);
       else { commit(d => { connect(d, sourceId, id, kind); }); setSourceId(undefined); setConnecting(false); }
@@ -182,8 +185,8 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
   }
   function addNode() {
     let id = ''; const point = flow.current?.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 }) ?? { x: 80, y: 80 };
-    commit(d => { id = createNode(d, point, `ノード ${d.nodes.length + 1}`, typeFilter || d.nodeTypes[0].id); });
-    if (id) { setSelected(new Set([id])); setEdgeId(undefined); setQuery(''); setTagFilter([]); }
+    commit(d => { id = createNode(d, point, `ノード ${d.nodes.length + 1}`, explorerPreferences.typeId || d.nodeTypes[0].id); });
+    if (id) { setSelected(new Set([id])); setExplorerPreferences(current => ({ ...current, selectedNodeId: id, query: '', tagIds: [] })); setEdgeId(undefined); }
   }
   function autoArrange() {
     if (snapshot.nodes.length < 2) return;
@@ -211,76 +214,28 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
     setSelected(old => old.size === next.size && [...old].every(id => next.has(id)) ? old : next);
     if (selectedEdges[0]) setEdgeId(selectedEdges[0].id);
   }, []);
-  const clearFilters = () => { setQuery(''); setTypeFilter(''); setTagFilter([]); setKinds(new Set(snapshot.edgeTypes.map(type => type.id))); };
-  const childrenByParent = new Map<string | null, typeof snapshot.nodes>();
-  for (const item of snapshot.nodes) childrenByParent.set(item.parentGroupId, [...(childrenByParent.get(item.parentGroupId) ?? []), item]);
-  const visibleTreeIds = new Set(matches);
-  for (const id of matches) { let parentId = snapshot.nodes.find(item => item.id === id)?.parentGroupId; while (parentId) { visibleTreeIds.add(parentId); parentId = snapshot.nodes.find(item => item.id === parentId)?.parentGroupId; } }
-  function renderTreeItem(item: Snapshot['nodes'][number], depth: number): ReactNode {
-    if (!visibleTreeIds.has(item.id)) return null;
-    const children = childrenByParent.get(item.id) ?? [];
-    const visibleChildren = children.filter(child => visibleTreeIds.has(child.id));
-    const collapsed = collapsedGroups.has(item.id);
-    const childCount = children.length;
-    const dropClass = dropTarget?.id === item.id ? (dropTarget.before ? ' drop-before' : ' drop-after') : '';
-    return <div className="node-tree-item" key={item.id}>
-      <div className={`node-list-row${selected.has(item.id) ? ' active' : ''}${dropClass}`} onDragOver={event => {
-        event.stopPropagation();
-        const draggedId = draggedNodeId ?? event.dataTransfer.getData('text/plain');
-        const dragged = snapshot.nodes.find(candidate => candidate.id === draggedId);
-        if (!dragged || dragged.id === item.id || dragged.parentGroupId !== item.parentGroupId) return;
-        event.preventDefault(); event.dataTransfer.dropEffect = 'move';
-        const before = event.clientY < event.currentTarget.getBoundingClientRect().top + event.currentTarget.getBoundingClientRect().height / 2;
-        setDropTarget(old => old?.id === item.id && old.before === before ? old : { id: item.id, before });
-      }} onDrop={event => {
-        event.stopPropagation();
-        event.preventDefault();
-        const draggedId = draggedNodeId ?? event.dataTransfer.getData('text/plain');
-        const dragged = snapshot.nodes.find(candidate => candidate.id === draggedId);
-        if (dragged && dragged.parentGroupId === item.parentGroupId) {
-          const rect = event.currentTarget.getBoundingClientRect();
-          const before = event.clientY < rect.top + rect.height / 2;
-          commit(draft => reorderNode(draft, dragged.id, item.id, before));
-        }
-        setDropTarget(null); setDraggedNodeId(undefined);
-      }}>
-        <div className="node-tree-row" style={{ paddingLeft: `${depth * 16}px` }}>
-          {childCount > 0 ? <button type="button" className="tree-toggle" aria-label={`${item.title || '無題'}の子ノードを${collapsed ? '展開' : '折りたたむ'}`} aria-expanded={!collapsed} onClick={() => setCollapsedGroups(old => { const next = new Set(old); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; })}>{collapsed ? '▸' : '▾'}</button> : <span className="tree-toggle-spacer"/>}
-          <input type="checkbox" aria-label={`${item.title || '無題'}を選択`} checked={selected.has(item.id)} onChange={event => { setEdgeId(undefined); setSelected(old => { const next = new Set(old); if (event.target.checked) next.add(item.id); else next.delete(item.id); return next; }); }}/>
-          <button type="button" className="node-drag-grip" draggable={!disabled} aria-label={`${item.title || '無題'}を並べ替え`} title="ドラッグして同じ階層内で並べ替え" onClick={event => event.stopPropagation()} onDragStart={event => { if (disabled) { event.preventDefault(); return; } event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', item.id); setDraggedNodeId(item.id); setDropTarget(null); }} onDragEnd={() => { setDropTarget(null); setDraggedNodeId(undefined); }}>⠿</button>
-          <button className="node-list-title" onClick={() => selectNode(item.id)}><span>{item.title || '無題'}</span><small>{snapshot.nodeTypes.find(type => type.id === item.typeId)?.name}</small></button>
-        </div>
-      </div>
-      {!collapsed && visibleChildren.map(child => renderTreeItem(child, depth + 1))}
-    </div>;
-  }
-  return <section className={`graph-workbench mobile-${mobileTab} ${connecting ? 'is-connecting' : ''} ${interactionMode === 'pan' ? 'is-pan-mode' : 'is-select-mode'}`} style={{ '--left-width': left ? `${leftWidth}px` : '0px', '--right-width': right ? `${rightWidth}px` : '0px' } as CSSProperties}
+  const toggleNodeSelection = (id: string, checked: boolean) => { setEdgeId(undefined); setSelected(old => { const next = new Set(old); if (checked) next.add(id); else next.delete(id); return next; }); if (checked) setExplorerPreferences(current => ({ ...current, selectedNodeId: id })); };
+  const reorderExplorerNode = (sourceId: string, targetId: string, before: boolean) => commit(draft => reorderNode(draft, sourceId, targetId, before));
+  const explorerExtras = <div className="graph-explorer-tools">
+    <button className="wide" disabled={!selected.size || disabled} onClick={() => { let id = ''; commit(d => { id = groupNodes(d, selected); }); if (id) { setSelected(new Set([id])); setExplorerPreferences(current => ({ ...current, selectedNodeId: id })); } }}>選択ノードをグループ化</button>
+    <button className="wide" disabled={!canAddToGroup || disabled} title="既存グループと追加するノードを選択してください" onClick={() => { if (!addTargetGroupId) return; commit(d => addNodesToGroup(d, addTargetGroupId, selected)); setSelected(new Set([addTargetGroupId])); setExplorerPreferences(current => ({ ...current, selectedNodeId: addTargetGroupId })); }}>選択ノードを既存グループに追加</button>
+    <details><summary>接続の表示</summary>{snapshot.edgeTypes.map(type => <label className="check" key={type.id}><input type="checkbox" checked={kinds.has(type.id)} onChange={e => setKinds(old => { const next = new Set(old); if (e.target.checked) next.add(type.id); else next.delete(type.id); return next; })}/>{type.name}</label>)}</details>
+    <details><summary>接続一覧（{snapshot.edges.length}）</summary>{snapshot.edges.map(e => <button className="connection-row" key={e.id} onClick={() => { setEdgeId(e.id); setSelected(new Set()); setMobileTab('details'); }}>{snapshot.nodes.find(n => n.id === e.sourceId)?.title} → {snapshot.nodes.find(n => n.id === e.targetId)?.title}<small>{snapshot.edgeTypes.find(type => type.id === e.kind)?.name ?? e.kind} · {e.label || 'ラベルなし'}</small></button>)}</details>
+  </div>;
+  return <section className={`graph-workbench mobile-${mobileTab} ${connecting ? 'is-connecting' : ''} ${interactionMode === 'pan' ? 'is-pan-mode' : 'is-select-mode'}`} style={{ '--left-width': left ? `${explorerPreferences.width}px` : '0px', '--right-width': right ? `${rightWidth}px` : '0px' } as CSSProperties}
     onKeyDown={e => { if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"]')) return; if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); travel(e.shiftKey ? 'redo' : 'undo'); } }}>
     <div className="graph-toolbar"><div><span className="eyebrow">SCENARIO MAP</span><strong>{snapshot.project.title || '無題のシナリオ'}</strong></div><div className="graph-actions"><button disabled={disabled} className="primary" onClick={addNode}>＋ ノード</button><button type="button" disabled={disabled || snapshot.nodes.length < 2} title="接続関係とグループを保ってノードを整列します。Undoで戻せます。" onClick={autoArrange}>自動整列</button><button disabled={!history.current.canUndo || disabled} onClick={() => travel('undo')}>↶ Undo</button><button disabled={!history.current.canRedo || disabled} onClick={() => travel('redo')}>↷ Redo</button><button type="button" aria-pressed={showToolPanel} onClick={() => setShowToolPanel(value => !value)}>ツール</button><button type="button" disabled={!node} aria-pressed={editorPanelOpen} onClick={() => setEditorPanelOpen(value => !value)}>本文パネル</button><button onClick={() => setLeft(!left)} aria-pressed={left}>一覧</button><button onClick={() => setRight(!right)} aria-pressed={right}>詳細</button></div></div>
     <nav className="graph-mobile-tabs" aria-label="グラフの画面">{[['list','ノード一覧'],['graph','グラフ'],['details','編集']].map(([id,label]) => <button key={id} aria-pressed={mobileTab === id} onClick={() => setMobileTab(id)}>{label}</button>)}</nav>
     {error && <div className="graph-error" role="alert">{error}</div>}
     <div className="graph-panes">
-      <aside className={`graph-list ${left ? '' : 'pane-collapsed'}`}>
-        <h2>ノード <span>{matches.size} / {snapshot.nodes.length}</span></h2>
-        <label>検索<input value={query} onChange={e => setQuery(e.target.value)} placeholder="タイトル・本文を検索" /></label>
-        <label>タイプ<select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}><option value="">すべてのタイプ</option>{snapshot.nodeTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
-        {snapshot.tags.length > 0 && <fieldset><legend>タグで絞り込み</legend><select aria-label="タグの検索条件" value={tagMode} onChange={e => setTagMode(e.target.value as 'and' | 'or')}><option value="or">OR：いずれか</option><option value="and">AND：すべて</option></select>{snapshot.tags.map(t => <label className="check" key={t.id}><input type="checkbox" checked={tagFilter.includes(t.id)} onChange={e => setTagFilter(e.target.checked ? [...tagFilter,t.id] : tagFilter.filter(id => id !== t.id))}/>{t.name}</label>)}</fieldset>}
-        <button className="wide" onClick={clearFilters}>絞り込みを解除</button>
-        <div className="graph-node-list">{(childrenByParent.get(null) ?? []).filter(item => visibleTreeIds.has(item.id)).map(item => renderTreeItem(item, 0))}</div>
-        {!matches.size && <p className="muted">ノードがありません。作成するか、絞り込みを解除してください。</p>}
-        <button className="wide" disabled={!selected.size || disabled} onClick={() => { let id = ''; commit(d => { id = groupNodes(d, selected); }); if (id) setSelected(new Set([id])); }}>選択ノードをグループ化</button>
-        <button className="wide" disabled={!canAddToGroup || disabled} title="既存グループと追加するノードを選択してください" onClick={() => { if (!addTargetGroupId) return; commit(d => addNodesToGroup(d, addTargetGroupId, selected)); setSelected(new Set([addTargetGroupId])); }}>選択ノードを既存グループに追加</button>
-        <fieldset><legend>接続の表示</legend>{snapshot.edgeTypes.map(type => <label className="check" key={type.id}><input type="checkbox" checked={kinds.has(type.id)} onChange={e => setKinds(old => { const next = new Set(old); if (e.target.checked) next.add(type.id); else next.delete(type.id); return next; })}/>{type.name}</label>)}</fieldset>
-        <details><summary>接続一覧（{snapshot.edges.length}）</summary>{snapshot.edges.map(e => <button className="connection-row" key={e.id} onClick={() => { setEdgeId(e.id); setSelected(new Set()); setMobileTab('details'); }}>{snapshot.nodes.find(n => n.id === e.sourceId)?.title} → {snapshot.nodes.find(n => n.id === e.targetId)?.title}<small>{snapshot.edgeTypes.find(type => type.id === e.kind)?.name ?? e.kind} · {e.label || 'ラベルなし'}</small></button>)}</details>
-      </aside>
-      {left && <ResizeHandle side="left" width={leftWidth} onResize={setLeftWidth}/>}
+      <ScenarioExplorer snapshot={snapshot} preferences={explorerPreferences} setPreferences={setExplorerPreferences} selectedIds={selected} onToggleNode={toggleNodeSelection} onOpenNode={selectNode} onCreateNode={addNode} onRenameNode={(id, title) => commit(d => updateNode(d, id, { title }))} onReorder={reorderExplorerNode} disabled={disabled} className={`graph-list ${left ? '' : 'pane-collapsed'}`} title="ノード" >{explorerExtras}</ScenarioExplorer>
       <div className="graph-center">
         <div className="connection-tools"><label>新規接続<select aria-label="新規接続の種類" value={kind} disabled={disabled} onChange={e => setKind(e.target.value)}>{snapshot.edgeTypes.map(type => <option value={type.id} key={type.id}>{type.name}</option>)}</select></label><button disabled={disabled} aria-pressed={connecting} onClick={() => { setConnecting(!connecting); setSourceId(undefined); }}>{connecting ? '接続モードを終了' : '接続モードを開始'}</button><span role="status">{connecting ? sourceId ? '接続先を選ぶか、接続点をドラッグ' : '接続元を選ぶか、接続点をドラッグ' : '接続モードを開始すると接続点が表示されます'}</span></div>
         <div className="flow-canvas" aria-label="シナリオグラフ" onContextMenu={event => event.preventDefault()}>
           <ReactFlow<CardNode, ScenarioFlowEdge> nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onInit={instance => { flow.current = instance; }} fitView minZoom={0.15} maxZoom={2} deleteKeyCode={null} panOnDrag={interactionMode === 'pan' ? [0, 2] : [2]} nodesDraggable={!disabled && interactionMode === 'select'} nodesConnectable={!disabled && interactionMode === 'select'} connectOnClick selectionOnDrag={interactionMode === 'select'} selectionKeyCode="Shift" multiSelectionKeyCode={['Control','Meta']} onSelectionChange={onSelectionChange} onPaneContextMenu={event => event.preventDefault()}
             onNodesChange={changes => { setNodes(old => { const next = applyNodeChanges(changes, old); nodesRef.current = next; return next; }); if (changes.some(c => c.type === 'position' && c.position && c.dragging === undefined) && !dragging.current && !resizing.current) finishMove(changes); }}
             onNodeDragStart={() => { dragging.current = true; }} onNodeDragStop={(_, moved, movedNodes) => finishMove((movedNodes.length ? movedNodes : [moved]).map(n => ({ type: 'position' as const, id: n.id, position: n.position })))}
-            onNodeClick={(_, n) => { if (connecting) selectNode(n.id); else { setEdgeId(undefined); if (!selected.has(n.id)) setSelected(new Set([n.id])); } }}
+            onNodeClick={(_, n) => { if (connecting) selectNode(n.id); else { setEdgeId(undefined); if (!selected.has(n.id)) setSelected(new Set([n.id])); setExplorerPreferences(current => ({ ...current, selectedNodeId: n.id })); } }}
             onEdgeClick={(_, e) => { setEdgeId(e.id); setSelected(new Set()); }}
             onConnect={connection => { commit(d => { connect(d, connection.source, connection.target, kind); }); setConnecting(false); setSourceId(undefined); }}
             onPaneClick={() => { if (!connecting) { setSelected(new Set()); setEdgeId(undefined); } }}

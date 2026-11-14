@@ -39,7 +39,7 @@ export function exportMarkdown(snapshot: Snapshot, options: ExportOptions): stri
   let selected = ordered;
   if (sectionIndex >= 0) {
     const depth = ordered[sectionIndex].depth;
-    const end = ordered.findIndex((item, index) => index > sectionIndex && item.depth === depth);
+    const end = ordered.findIndex((item, index) => index > sectionIndex && item.depth <= depth);
     selected = ordered.slice(sectionIndex, end < 0 ? undefined : end);
   }
   const result = [`# ${snapshot.project.title || '無題のシナリオ'}`];

@@ -122,8 +122,25 @@ function contentText(content: Content[], data: Snapshot): string {
 }
 export function filterNodes(data: Snapshot, query: string, typeId: string, tagIds: string[], mode: 'and' | 'or'): Set<string> {
   const words = query.trim().toLocaleLowerCase();
-  const docs = new Map(data.documents.map(d => [d.id, contentText(d.content, data)]));
-  return new Set(data.nodes.filter(n => (!typeId || n.typeId === typeId) && (!words || `${n.title} ${docs.get(n.documentId) ?? ''}`.toLocaleLowerCase().includes(words)) && (!tagIds.length || (mode === 'and' ? tagIds.every(t => n.tagIds.includes(t)) : tagIds.some(t => n.tagIds.includes(t))))).map(n => n.id));
+  const documents = new Map(data.documents.map(document => [document.id, document]));
+  const types = new Map(data.nodeTypes.map(type => [type.id, type.name]));
+  const tags = new Map(data.tags.map(tag => [tag.id, tag.name]));
+  const contentCache = new Map<string, string>();
+  const selectedTags = new Set(tagIds);
+  const results = new Set<string>();
+  for (const node of data.nodes) {
+    if (typeId && node.typeId !== typeId) continue;
+    if (selectedTags.size && !(mode === 'and' ? [...selectedTags].every(id => node.tagIds.includes(id)) : node.tagIds.some(id => selectedTags.has(id)))) continue;
+    if (words) {
+      let body = contentCache.get(node.documentId);
+      if (body === undefined) { const document = documents.get(node.documentId); body = document ? contentText(document.content, data) : ''; contentCache.set(node.documentId, body); }
+      const tagNames = node.tagIds.map(id => tags.get(id) ?? '').join(' ');
+      const haystack = `${node.title} ${types.get(node.typeId) ?? ''} ${tagNames} ${body}`.toLocaleLowerCase();
+      if (!haystack.includes(words)) continue;
+    }
+    results.add(node.id);
+  }
+  return results;
 }
 
 /** Session-only history. Persistence history in IndexedDB remains independent. */
