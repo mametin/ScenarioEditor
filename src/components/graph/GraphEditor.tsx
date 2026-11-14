@@ -79,7 +79,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
   const initialFocusApplied = useRef<string | undefined>(undefined);
   const dragging = useRef(false);
   const matches = useMemo(() => filterNodes(snapshot, query, typeFilter, tagFilter, tagMode), [snapshot, query, typeFilter, tagFilter, tagMode]);
-  const [nodes, setNodes] = useState<CardNode[]>(() => toFlowNodes(snapshot, matches, selected));
+  const [nodes, setNodes] = useState<CardNode[]>(() => toFlowNodes(snapshot, matches, selected, {}, undefined, undefined, !disabled && !connecting));
   const nodesRef = useRef(nodes); nodesRef.current = nodes;
   const resizing = useRef(false);
   const resizeStart = useRef<ResizeNodeStart>(() => {});
@@ -129,7 +129,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
   }, [panelPositionKey]);
   const handleResizeStart = useCallback<ResizeNodeStart>(id => resizeStart.current(id), []);
   const handleResizeEnd = useCallback<ResizeNodeEnd>((id, params) => resizeEnd.current(id, params), []);
-  useEffect(() => { if (!dragging.current) setNodes(toFlowNodes(snapshot, matches, selected, groupColors, handleResizeStart, handleResizeEnd, !disabled)); }, [snapshot, matches, selected, groupColors, handleResizeStart, handleResizeEnd, disabled]);
+  useEffect(() => { if (!dragging.current) setNodes(toFlowNodes(snapshot, matches, selected, groupColors, handleResizeStart, handleResizeEnd, !disabled && !connecting)); }, [snapshot, matches, selected, groupColors, handleResizeStart, handleResizeEnd, disabled, connecting]);
   const node = snapshot.nodes.find(n => selected.has(n.id));
   const edge = snapshot.edges.find(e => e.id === edgeId);
   const selectedGroups = snapshot.nodes.filter(item => selected.has(item.id) && snapshot.nodes.some(child => child.parentGroupId === item.id));
