@@ -4,7 +4,7 @@ import { resolveReference } from '../../domain/project';
 
 export type ResizeNodeEnd = (id: string, params: { x: number; y: number; width: number; height: number }) => void;
 export type ResizeNodeStart = (id: string) => void;
-export type PreviewPart = { kind: 'text'; text: string } | { kind: 'break' } | { kind: 'entity'; text: string; tooltip: string };
+export type PreviewPart = { kind: 'text'; text: string } | { kind: 'break' } | { kind: 'entity'; entityId: string; text: string };
 export type CardNode = Node<{ title: string; preview: string; previewParts: PreviewPart[]; typeName: string; color: string; tags: string[]; children: number; match: boolean; minWidth: number; minHeight: number; resizable: boolean; onResizeStart?: ResizeNodeStart; onResizeEnd?: ResizeNodeEnd }, 'scenario'>;
 export type ScenarioFlowEdge = Edge<{ lane: number }, 'scenario'>;
 export const edgeColors = { progression: '#52745e', conditional: '#b57d37', reference: '#628aa5', dependency: '#92739c' };
@@ -22,21 +22,13 @@ function plainText(content: Content[], snapshot: Snapshot): string {
 function previewText(content: Content[], snapshot: Snapshot): string {
   return content.map(item => plainText([item], snapshot)).filter(Boolean).join('\n').replace(/\r\n?/g, '\n').trim();
 }
-function entityTooltip(entityId: string, snapshot: Snapshot): string {
-  const entity = snapshot.entities.find(item => item.id === entityId);
-  if (!entity) return 'リンク切れ：参照先の設定資料が見つかりません';
-  const description = snapshot.documents.find(item => item.id === entity.descriptionDocumentId);
-  const text = description ? plainText(description.content, snapshot).replace(/\s+/g, ' ').trim() : '';
-  const aliases = entity.aliases.map(alias => alias.name).filter(Boolean);
-  return [entity.name, entity.category, aliases.length ? `別名: ${aliases.join('、')}` : '', text ? `説明: ${text.slice(0, 360)}${text.length > 360 ? '…' : ''}` : ''].filter(Boolean).join('\n');
-}
 function previewParts(content: Content[], snapshot: Snapshot): PreviewPart[] {
   const parts: PreviewPart[] = [];
   const addText = (text: string) => { if (!text) return; const previous = parts.at(-1); if (previous?.kind === 'text') previous.text += text; else parts.push({ kind: 'text', text }); };
   const addBreak = () => { if (parts.length && parts.at(-1)?.kind !== 'break') parts.push({ kind: 'break' }); };
   const visitInline = (items: Content[]) => items.forEach(item => {
     if (item.kind === 'text') addText(item.text);
-    else if (item.kind === 'entity') { const entity = snapshot.entities.find(candidate => candidate.id === item.reference.entityId); const display = resolveReference(item.reference, snapshot); parts.push({ kind: 'entity', text: display.text, tooltip: entityTooltip(item.reference.entityId, snapshot) }); }
+    else if (item.kind === 'entity') { const display = resolveReference(item.reference, snapshot); parts.push({ kind: 'entity', entityId: item.reference.entityId, text: display.text }); }
     else if (item.kind === 'nodeLink') addText(item.text);
     else if (item.style === 'divider') addText('────────');
     else visitInline(item.children);

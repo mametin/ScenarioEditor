@@ -9,6 +9,7 @@ import { toFlowEdges, toFlowNodes, type CardNode, type ResizeNodeEnd, type Resiz
 import ColorPicker from '../ColorPicker';
 import RichTextEditor from '../editor/RichTextEditor';
 import FloatingPanel, { type PanelPosition } from './FloatingPanel';
+import { showEntityHover, hideEntityHover } from '../entities/entity-hover';
 
 function NodeCard({ id, data, selected }: NodeProps<CardNode>) {
   return <div className={`node-card ${data.children ? 'group-card' : ''} ${selected ? 'chosen' : ''} ${data.match ? '' : 'context-node'}`} style={{ '--node-color': data.color } as CSSProperties}>
@@ -16,7 +17,7 @@ function NodeCard({ id, data, selected }: NodeProps<CardNode>) {
     <Handle type="target" position={Position.Left} aria-label="接続先" />
     <div className="node-content">
       <div className="node-heading"><small>{data.typeName}</small><strong>{data.title || '無題'}</strong></div>
-      {data.preview && <p className="node-preview">{data.previewParts.map((part, index) => part.kind === 'break' ? <br key={index}/> : part.kind === 'entity' ? <span key={index} className="entity-preview-reference" title={part.tooltip}>{part.text}</span> : <span key={index}>{part.text}</span>)}</p>}
+      {data.preview && <p className="node-preview">{data.previewParts.map((part, index) => part.kind === 'break' ? <br key={index}/> : part.kind === 'entity' ? <button key={index} type="button" className="entity-preview-reference nodrag" aria-label={`${part.text}の設定資料詳細`} aria-haspopup="dialog" onPointerEnter={event => showEntityHover(part.entityId, event.currentTarget)} onPointerLeave={() => hideEntityHover(part.entityId)} onFocus={event => showEntityHover(part.entityId, event.currentTarget)} onBlur={() => hideEntityHover(part.entityId)} onClick={event => { event.stopPropagation(); showEntityHover(part.entityId, event.currentTarget, true); }}>{part.text}</button> : <span key={index}>{part.text}</span>)}</p>}
       {data.tags.length > 0 && <div className="node-tags">{data.tags.join(' · ')}</div>}
     </div>
     <Handle type="source" position={Position.Right} aria-label="接続元" />
@@ -51,7 +52,7 @@ function ResizeHandle({ side, width, onResize }: { side: 'left' | 'right'; width
     onPointerDown={e => { const element = e.currentTarget; element.setPointerCapture(e.pointerId); const start = e.clientX; const initial = width; const move = (event: PointerEvent) => onResize(Math.min(440, Math.max(200, initial + (event.clientX - start) * (side === 'left' ? 1 : -1)))); const stop = () => { element.removeEventListener('pointermove', move); element.removeEventListener('pointerup', stop); element.removeEventListener('pointercancel', stop); }; element.addEventListener('pointermove', move); element.addEventListener('pointerup', stop); element.addEventListener('pointercancel', stop); }} />;
 }
 
-export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEntity, disabled = false }: { snapshot: Snapshot; onChange: (snapshot: Snapshot) => void; disabled?: boolean; onWriteNode?: (id: string) => void; onOpenEntity?: (id: string) => void }) {
+export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEntity, onOpenOutline, initialSelectedNodeId, disabled = false }: { snapshot: Snapshot; onChange: (snapshot: Snapshot) => void; disabled?: boolean; onWriteNode?: (id: string) => void; onOpenEntity?: (id: string) => void; onOpenOutline?: (itemId?: string, nodeId?: string) => void; initialSelectedNodeId?: string }) {
   const latest = useRef(snapshot); latest.current = snapshot;
   const history = useRef(new GraphHistory());
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -75,6 +76,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
   const groupColorKey = `scenario-editor-group-colors:${snapshot.project.id}`;
   const panelPositionKey = `scenario-editor-floating-panels:${snapshot.project.id}`;
   const flow = useRef<ReactFlowInstance<CardNode, ScenarioFlowEdge> | null>(null);
+  const initialFocusApplied = useRef<string | undefined>(undefined);
   const dragging = useRef(false);
   const matches = useMemo(() => filterNodes(snapshot, query, typeFilter, tagFilter, tagMode), [snapshot, query, typeFilter, tagFilter, tagMode]);
   const [nodes, setNodes] = useState<CardNode[]>(() => toFlowNodes(snapshot, matches, selected));
@@ -83,6 +85,13 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
   const resizeStart = useRef<ResizeNodeStart>(() => {});
   const resizeEnd = useRef<ResizeNodeEnd>(() => {});
   const edges = useMemo(() => toFlowEdges(snapshot, matches, kinds, edgeId), [snapshot, matches, kinds, edgeId]);
+  useEffect(() => {
+    if (!initialSelectedNodeId || initialFocusApplied.current === initialSelectedNodeId || !snapshot.nodes.some(item => item.id === initialSelectedNodeId)) return;
+    initialFocusApplied.current = initialSelectedNodeId;
+    setEdgeId(undefined); setSelected(new Set([initialSelectedNodeId]));
+    const frame = window.requestAnimationFrame(() => flow.current?.fitView({ nodes: [{ id: initialSelectedNodeId }], duration: 450, padding: 0.38 }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [initialSelectedNodeId, snapshot]);
   useEffect(() => {
     const handleModeShortcut = (event: KeyboardEvent) => {
       if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
@@ -277,6 +286,7 @@ export default function GraphEditor({ snapshot, onChange, onWriteNode, onOpenEnt
       {right && <ResizeHandle side="right" width={rightWidth} onResize={setRightWidth}/>}
       <aside className={`graph-inspector ${right ? '' : 'pane-collapsed'}`}><div className="eyebrow">INSPECTOR</div>
         {edge ? <><h2>接続を編集</h2><label>接続元<select value={edge.sourceId} disabled={disabled} onChange={e => patchEdge({ sourceId: e.target.value })}>{snapshot.nodes.map(n => <option key={n.id} value={n.id}>{n.title || '無題'}</option>)}</select></label><label>接続先<select value={edge.targetId} disabled={disabled} onChange={e => patchEdge({ targetId: e.target.value })}>{snapshot.nodes.map(n => <option key={n.id} value={n.id}>{n.title || '無題'}</option>)}</select></label><label>種類<select value={edge.kind} disabled={disabled} onChange={e => patchEdge({ kind: e.target.value as ScenarioEdge['kind'] })}>{Object.entries(edgeKinds).map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></label><label>ラベル<input value={edge.label} disabled={disabled} onChange={e => patchEdge({ label: e.target.value })}/></label><label>条件テキスト<textarea value={edge.condition} disabled={disabled} onChange={e => patchEdge({ condition: e.target.value })}/></label><p className="muted">条件の自動評価は行いません。</p><button className="danger wide" disabled={disabled} onClick={removeSelection}>接続を削除</button></> : node ? <><h2>ノードを編集</h2><p className="muted">選択中のノードは、四隅または辺の中央をドラッグしてサイズを変更できます。</p>{selected.size > 1 && <p>{selected.size}件選択中 · 項目編集は先頭のノード</p>}<label>ノードタイトル<input value={node.title} disabled={disabled} onChange={e => commit(d => updateNode(d, node.id, { title: e.target.value }))}/></label><label>ノードタイプ<select value={node.typeId} disabled={disabled} onChange={e => commit(d => updateNode(d, node.id, { typeId: e.target.value }))}>{snapshot.nodeTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
+          <section className="node-outline-links"><h3>アウトライン</h3>{snapshot.outline.filter(item => item.nodeId === node.id).length ? snapshot.outline.filter(item => item.nodeId === node.id).map(item => <button type="button" key={item.id} onClick={() => onOpenOutline?.(item.id)}>{item.title || '無題の章'} ↗</button>) : <p className="muted">このノードはアウトラインに配置されていません。</p>}<button type="button" className="wide" onClick={() => onOpenOutline?.(snapshot.outline.find(item => item.nodeId === node.id)?.id, node.id)}>{snapshot.outline.some(item => item.nodeId === node.id) ? 'アウトラインで配置箇所を確認' : 'アウトラインに配置する'}</button></section>
           <button className="wide" type="button" onClick={() => setEditorPanelOpen(true)}>本文を独立パネルで編集</button>
           {snapshot.nodes.some(item => item.parentGroupId === node.id) && <div className="group-color-setting"><ColorPicker label="グループ色" value={groupColors[node.id] ?? snapshot.nodeTypes.find(t => t.id === node.typeId)?.color ?? '#657e6d'} onChange={color => setGroupColor(node.id, color)}/><p className="muted">この色はプロジェクトごとにこのブラウザへ保存されます。</p><button type="button" onClick={() => setGroupColor(node.id)}>タイプ色に戻す</button></div>}
           <fieldset><legend>タグ</legend>{snapshot.tags.map(t => <label className="check" key={t.id}><input type="checkbox" checked={node.tagIds.includes(t.id)} disabled={disabled} onChange={e => commit(d => updateNode(d, node.id, { tagIds: e.target.checked ? [...node.tagIds,t.id] : node.tagIds.filter(id => id !== t.id) }))}/>{t.name}</label>)}<div className="new-tag"><input aria-label="新しいタグ名" value={newTag} onChange={e => setNewTag(e.target.value)} placeholder="タグ名"/><button disabled={!newTag.trim() || disabled} onClick={() => { commit(d => { const tag = d.tags.find(t => t.name === newTag.trim()) ?? { id: crypto.randomUUID(), name: newTag.trim(), color: '#657e6d' }; if (!d.tags.some(t => t.id === tag.id)) d.tags.push(tag); const n = d.nodes.find(n => n.id === node.id)!; if (!n.tagIds.includes(tag.id)) n.tagIds.push(tag.id); }); setNewTag(''); }}>追加</button></div></fieldset>

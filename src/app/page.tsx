@@ -15,6 +15,7 @@ const EntityManager = dynamic(() => import('../components/entities/EntityManager
 const NodeTypeManager = dynamic(() => import('../components/types/NodeTypeManager'), { ssr: false });
 const TagManager = dynamic(() => import('../components/types/TagManager'), { ssr: false });
 const OutlineWorkspace = dynamic(() => import('../components/OutlineWorkspace'), { ssr: false });
+const EntityHoverCard = dynamic(() => import('../components/entities/EntityHoverCard'), { ssr: false });
 
 const labels = { saved: 'ローカル保存済み', pending: '未保存の変更あり', saving: '保存中…', error: '保存できませんでした' };
 const screens = [
@@ -38,6 +39,9 @@ export default function Home() {
   const [view, setView] = useState<'overview' | 'graph' | 'writing' | 'entities' | 'types' | 'tags' | 'outline'>('overview');
   const [openedEntity, setOpenedEntity] = useState<string>();
   const [openedNode, setOpenedNode] = useState<string>();
+  const [graphFocusNodeId, setGraphFocusNodeId] = useState<string>();
+  const [focusOutlineItemId, setFocusOutlineItemId] = useState<string>();
+  const [outlineTargetNodeId, setOutlineTargetNodeId] = useState<string>();
   const [editorSession, setEditorSession] = useState(0);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [themeColor, setThemeColor] = useState('#476955');
@@ -158,7 +162,7 @@ export default function Home() {
     if (view === 'entities') return <EntityManager snapshot={active} onChange={saveEditor} selectedEntityId={openedEntity} onSelectEntity={setOpenedEntity} renderDescription={id => <RichTextEditor key={id} snapshot={active} documentId={id} onChange={saveEditor} onOpenEntity={setOpenedEntity} onOpenNode={id => { setOpenedNode(id); setView("writing"); }}/>} onSelectNode={id => { setOpenedNode(id); setView('writing'); }}/>
     if (view === 'types') return <NodeTypeManager snapshot={active} onChange={saveEditor}/>;
     if (view === 'tags') return <TagManager snapshot={active} onChange={saveEditor}/>;
-    if (view === 'outline') return <OutlineWorkspace snapshot={active} onChange={saveEditor}/>;
+    if (view === 'outline') return <OutlineWorkspace snapshot={active} onChange={saveEditor} selectedNodeId={outlineTargetNodeId} focusOutlineItemId={focusOutlineItemId} onSelectNode={id => { setGraphFocusNodeId(id); setView('graph'); }}/>;
     return null;
   }
   return <div className={`app${view === 'graph' ? ' graph-mode' : ''}${focus ? ' focus' : ''}${active ? ' has-project' : ''}${active && view !== 'overview' ? ' workspace-mode' : ''}${navExpanded ? ' is-nav-expanded' : ''}`}>
@@ -186,8 +190,9 @@ export default function Home() {
     {active && view !== 'overview' && <div className="workspace-surface">
       <div className="graph-savebar"><span className={status === 'error' ? 'save-error' : ''} role="status">{labels[status]}</span><span>{online ? 'オンライン' : 'オフライン'}</span><span className="backup-inline">{lastBackupAt ? `JSON退避 ${new Date(lastBackupAt).toLocaleDateString('ja-JP')}` : 'JSON未退避'}</span><button onClick={download}>JSONバックアップ</button></div>
       {error && <div className="error" role="alert">{error}<button onClick={() => void saver.current?.flush()}>保存を再試行</button><button onClick={download}>未保存JSONを退避</button></div>}
-      {view === 'graph' && <GraphEditor key={`${active.project.id}-${editorSession}`} snapshot={active} disabled={busy} onWriteNode={id => { setOpenedNode(id); setView("writing"); }} onOpenEntity={id => { setOpenedEntity(id); setView('entities'); }} onChange={data => { current.current = data; setActive(data); saver.current!.enqueue(data); }}/>}
+      {view === 'graph' && <GraphEditor key={`${active.project.id}-${editorSession}`} snapshot={active} disabled={busy} initialSelectedNodeId={graphFocusNodeId} onOpenOutline={(itemId, nodeId) => { setFocusOutlineItemId(itemId); setOutlineTargetNodeId(nodeId); setView('outline'); }} onWriteNode={id => { setOpenedNode(id); setView("writing"); }} onOpenEntity={id => { setOpenedEntity(id); setView('entities'); }} onChange={data => { current.current = data; setActive(data); saver.current!.enqueue(data); }}/>}
       {view !== 'graph' && <div className="phase-three-panel">{PhaseThreeContent()}</div>}
+      {active && <EntityHoverCard snapshot={active} onOpen={id => { setOpenedEntity(id); setView('entities'); }}/>}
     </div>}
     <footer className="bottom"><span>TRPG SCENARIO EDITOR</span><span>あなたの物語は、あなたの手元に。</span></footer>
     <nav className="mobile-primary-nav" aria-label="メイン画面">{screens.map(screen => <button key={screen.id} disabled={screen.id !== 'overview' && !active} aria-current={view === screen.id ? 'page' : undefined} aria-label={screen.label} title={screen.label} onClick={() => setView(screen.id)}><span aria-hidden="true">{screen.icon}</span><small>{screen.label}</small></button>)}</nav>

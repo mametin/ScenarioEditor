@@ -3,28 +3,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Node, mergeAttributes, getSchema } from '@tiptap/core';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import { parseSnapshot, type Content, type EntityReference, type Snapshot } from '../../domain/schema';
+import { parseSnapshot, type EntityReference, type Snapshot } from '../../domain/schema';
 import { resolveReference } from '../../domain/project';
 import { fromEditorJSON, normalizeContent, toEditorJSON } from './adapter';
 import { recoveryKey, persistRecovery } from './recovery';
+import { hideEntityHover, showEntityHover } from '../entities/entity-hover';
 import './editor.css';
-
-function entityDetailsTitle(entityId: string, snapshot: Snapshot): string {
-  const entity = snapshot.entities.find(item => item.id === entityId);
-  if (!entity) return 'リンク切れ：参照先の設定資料が見つかりません';
-  const document = snapshot.documents.find(item => item.id === entity.descriptionDocumentId);
-  const text = document ? detailText(document.content, snapshot).replace(/\s+/g, ' ').trim() : '';
-  const aliases = entity.aliases.map(alias => alias.name).filter(Boolean);
-  return [entity.name, entity.category, aliases.length ? `別名: ${aliases.join('、')}` : '', text ? `説明: ${text.slice(0, 360)}${text.length > 360 ? '…' : ''}` : ''].filter(Boolean).join('\n');
-}
-function detailText(content: Content[], snapshot: Snapshot): string {
-  return content.map(item => {
-    if (item.kind === 'text' || item.kind === 'nodeLink') return item.text;
-    if (item.kind === 'entity') return resolveReference(item.reference, snapshot).text;
-    if (item.style === 'divider') return '';
-    return detailText(item.children, snapshot);
-  }).join(' ');
-}
 
 export type ScenarioEditorProps = { snapshot: Snapshot; documentId: string; onChange: (snapshot: Snapshot) => void; onOpenEntity?: (id: string) => void; onOpenNode?: (id: string) => void; disabled?: boolean };
 export default function ScenarioEditor(props: ScenarioEditorProps) { return <EditorInstance key={props.documentId} {...props}/>; }
@@ -50,10 +34,16 @@ function EditorInstance(props: ScenarioEditorProps) {
       addNodeView: () => ({ node }) => {
         const dom = window.document.createElement('button'); dom.type = 'button'; dom.className = 'inline-reference'; dom.contentEditable = 'false';
         const render = () => {
-          if (name === 'entityReference') { const result = resolveReference(node.attrs.reference, latest.current.snapshot); dom.textContent = result.text; dom.classList.toggle('broken', result.broken); dom.title = entityDetailsTitle(node.attrs.reference.entityId, latest.current.snapshot); }
+          if (name === 'entityReference') { const result = resolveReference(node.attrs.reference, latest.current.snapshot); dom.textContent = result.text; dom.classList.toggle('broken', result.broken); dom.title = ''; dom.setAttribute('aria-label', `${result.text}の設定資料詳細`); dom.setAttribute('aria-haspopup', 'dialog'); }
           else { dom.textContent = node.attrs.text; dom.classList.toggle('broken', !latest.current.snapshot.nodes.some(n => n.id === node.attrs.nodeId)); dom.title = '参照ノードを開く'; }
         };
         dom.onclick = () => name === 'entityReference' ? latest.current.onOpenEntity?.(node.attrs.reference.entityId) : latest.current.onOpenNode?.(node.attrs.nodeId);
+        if (name === 'entityReference') {
+          dom.onmouseenter = () => showEntityHover(node.attrs.reference.entityId, dom);
+          dom.onmouseleave = () => hideEntityHover(node.attrs.reference.entityId);
+          dom.onfocus = () => showEntityHover(node.attrs.reference.entityId, dom);
+          dom.onblur = () => hideEntityHover(node.attrs.reference.entityId);
+        }
         refreshViews.current.add(render); render();
         return { dom, stopEvent: () => true, destroy: () => { refreshViews.current.delete(render); } };
       },
