@@ -39,6 +39,8 @@ html :focus-visible { outline-color: var(--accent); }
 .topbar-context strong { overflow: hidden; max-width: min(42vw, 520px); color: var(--ink); font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .app.has-project .appearance-controls { gap: 6px; margin-left: auto; }
 .app.has-project .appearance-settings summary, .app.has-project .theme-toggle, .app.has-project .focus-toggle { padding: 6px 9px; font-size: 12px; }
+.search-launch { flex: none; padding: 5px 9px; color: var(--muted); font-size: 12px; }
+.search-launch kbd { margin-left: 7px; padding: 1px 4px; border: 1px solid var(--line); border-radius: 4px; font: inherit; font-size: 10px; }
 
 .activity-bar {
   grid-column: 1;
@@ -90,9 +92,15 @@ html :focus-visible { outline-color: var(--accent); }
 .app.has-project > .workspace main { max-width: 1200px; padding: clamp(24px, 4vw, 56px); }
 .app.has-project > .workspace .sidebar { padding: 22px 16px; }
 .app.has-project > .workspace .details { padding: 22px 18px; }
+.storage-health { margin-top: 18px; padding: 14px 12px; border: 1px solid var(--line); border-radius: var(--ui-radius); background: var(--surface-toolbar); }
+.storage-health h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.storage-health .backup-age, .storage-health small, .storage-health label { display: block; margin: 0 0 7px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.storage-health progress { display: block; width: 100%; height: 8px; margin: 7px 0; accent-color: var(--accent); }
+.storage-health .backup-reminder { margin: 9px 0 0; color: var(--accent); font-size: 11px; line-height: 1.5; }
 .app.has-project > .workspace-surface { display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
 .app.has-project > .workspace-surface > .graph-savebar { flex: none; min-height: 34px; padding: 4px 12px; border-bottom: 1px solid var(--line); background: var(--surface-toolbar); font-size: 12px; }
 .app.has-project > .workspace-surface > .graph-savebar button { padding: 3px 8px; font-size: 11px; }
+.app.has-project > .workspace-surface > .graph-savebar .backup-inline { margin-left: auto; color: var(--muted); font-size: 11px; }
 .app.has-project > .workspace-surface > .error { z-index: 2; flex: none; margin: 6px 10px 0; padding: 8px 12px; }
 .app.has-project > .workspace-surface > .phase-three-panel { flex: 1; min-width: 0; min-height: 0; max-width: none; margin: 0; padding: 12px; overflow: auto; }
 .app.has-project > .workspace-surface > .graph-workbench { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; height: auto; border-left: 1px solid var(--line); }
@@ -118,6 +126,22 @@ html :focus-visible { outline-color: var(--accent); }
 .app.has-project > .bottom { grid-column: 1 / -1; grid-row: 3; height: 25px; padding: 0 12px; background: var(--surface-toolbar); border-top: 1px solid var(--line); font-size: 10px; }
 .app.has-project > .bottom span:last-child { display: block; }
 .mobile-primary-nav { display: none; }
+
+.command-search-backdrop { position: fixed; z-index: 500; inset: 0; display: flex; justify-content: center; align-items: flex-start; padding: min(14vh, 110px) 16px 24px; background: color-mix(in srgb, #101610 44%, transparent); }
+.command-search { display: flex; flex-direction: column; width: min(720px, 100%); max-height: min(72dvh, 720px); overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); box-shadow: 0 24px 80px #0004; }
+.command-search h2 { margin: 0; padding: 14px 18px 8px; font-size: 13px; font-weight: 600; }
+.command-search>input { width: calc(100% - 28px); margin: 4px 14px 12px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--input-bg); color: var(--ink); font: inherit; font-size: 15px; outline-color: var(--accent); }
+.command-search-results { min-height: 70px; overflow: auto; border-top: 1px solid var(--line); }
+.command-search-hint { margin: 0; padding: 20px 18px; color: var(--muted); font-size: 13px; }
+.command-search-result { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 14px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; text-align: left; }
+.command-search-result[aria-selected="true"], .command-search-result:hover { background: var(--surface-active); }
+.command-search-result__icon { flex: 0 0 28px; color: var(--accent); font-size: 18px; text-align: center; }
+.command-search-result__body { display: grid; flex: 1; min-width: 0; gap: 2px; }
+.command-search-result__body strong, .command-search-result__body small, .command-search-result__excerpt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-search-result__body strong { font-size: 14px; font-weight: 600; }
+.command-search-result__body small, .command-search-result__excerpt { color: var(--muted); font-size: 11px; }
+.command-search kbd { flex: none; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); font: inherit; font-size: 10px; }
+.command-search>footer { display: flex; gap: 18px; padding: 8px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
 
 html .editor, html .type-manager, html .custom-fields, html .tag-manager,
 html .outline-content > section, html .outline-content > aside,
@@ -153,6 +177,8 @@ html .graph-floating-panel__header { background: color-mix(in srgb, var(--accent
   .topbar-context { max-width: 42vw; gap: 3px; font-size: 11px; }
   .topbar-context strong { max-width: 28vw; font-size: 12px; }
   .app.has-project .appearance-controls { gap: 3px; }
+  .search-launch { padding: 5px 7px; font-size: 11px; }
+  .search-launch kbd { display: none; }
   .app.has-project .appearance-settings summary, .app.has-project .theme-toggle { padding: 5px 7px; font-size: 11px; }
   .app.has-project .focus-toggle { display: none; }
   .activity-bar { display: none; }
@@ -161,6 +187,7 @@ html .graph-floating-panel__header { background: color-mix(in srgb, var(--accent
   .app.has-project > .workspace main { padding: 22px 16px 28px; }
   .app.has-project > .workspace .sidebar { padding: 14px; }
   .app.has-project > .workspace .details { padding: 18px 14px; display: block; }
+  .storage-health { margin-top: 14px; }
   .app.has-project > .workspace-surface { display: flex; min-height: calc(100dvh - 126px); overflow: visible; padding-bottom: 8px; }
   .app.has-project > .workspace-surface > .phase-three-panel { min-height: 0; padding: 8px; overflow: visible; }
   .app.has-project > .workspace-surface > .graph-workbench { min-height: calc(100dvh - 138px); height: auto; border: 0; }
@@ -182,4 +209,10 @@ html .graph-floating-panel__header { background: color-mix(in srgb, var(--accent
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
+
+@media (max-width: 380px) {
+  .topbar-context { display: none; }
+  .command-search-backdrop { padding: 6dvh 8px 12px; }
+  .command-search { max-height: 82dvh; }
 }
