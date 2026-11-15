@@ -307,7 +307,7 @@ export default function Home() {
     if (view === 'entities') return <EntityManager snapshot={active} onChange={saveEditor} selectedEntityId={openedEntity} onSelectEntity={setOpenedEntity} onNavigateEntity={id => navigateEditorTarget({ kind: 'entity', id })} pinnedEntityId={currentPinnedReferenceId} onPinEntity={id => setPinnedReferenceId(currentId => currentId === id ? null : id)} renderDescription={id => <RichTextEditor key={`${active.project.id}:${id}`} snapshot={active} documentId={id} onChange={saveEditor} onOpenEntity={nextId => navigateEditorTarget({ kind: 'entity', id: nextId })} onOpenNode={nextId => navigateEditorTarget({ kind: 'node', id: nextId })}/>} onSelectNode={id => navigateEditorTarget({ kind: 'node', id })}/>
     if (view === 'types') return <><NodeTypeManager snapshot={active} onChange={saveEditor}/><ConnectionTypeManager snapshot={active} onChange={saveEditor}/></>;
     if (view === 'tags') return <TagManager snapshot={active} onChange={saveEditor}/>;
-    if (view === 'outline') return <OutlineWorkspace snapshot={active} onChange={saveEditor} selectedNodeId={outlineTargetNodeId} focusOutlineItemId={focusOutlineItemId} onSelectNode={id => { setGraphFocusNodeId(id); setView('graph'); }}/>;
+    if (view === 'outline') return <OutlineWorkspace snapshot={active} onChange={saveEditor} selectedNodeId={outlineTargetNodeId} focusOutlineItemId={focusOutlineItemId} onSelectNode={id => { setGraphFocusNodeId(id); setView('graph'); }} onSelectEntity={id => navigateEditorTarget({ kind: 'entity', id })}/>;
     return null;
   }
   const contrastSurface = theme === 'dark' ? mixHex(backgroundColor, '#000000', .8) : mixHex(backgroundColor, '#ffffff', .92);

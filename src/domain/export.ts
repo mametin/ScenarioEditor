@@ -2,7 +2,7 @@ import { resolveReference } from './project';
 import { orderedOutline } from './outline';
 import type { Content, Snapshot } from './schema';
 
-export type ExportOptions = { includeKP: boolean; sectionId?: string };
+export type ExportOptions = { includeKP: boolean; sectionId?: string; includeUnplaced?: boolean };
 function inline(content: Content[], snapshot: Snapshot): string {
   return content.map(item => {
     if (item.kind === 'text') { let text = item.text; if (item.marks.includes('bold')) text = `**${text}**`; if (item.marks.includes('italic')) text = `*${text}*`; return text; }
@@ -49,6 +49,14 @@ export function exportMarkdown(snapshot: Snapshot, options: ExportOptions): stri
   } else for (const item of selected) {
     const headingLevel = Math.min(6, item.depth + 2); result.push(`${'#'.repeat(headingLevel)} ${item.title || (item.nodeId ? snapshot.nodes.find(n => n.id === item.nodeId)?.title : '') || '無題'}`);
     if (item.nodeId) { const node = snapshot.nodes.find(n => n.id === item.nodeId); const doc = node && snapshot.documents.find(d => d.id === node.documentId); if (doc) result.push(blocks(doc.content, snapshot, options.includeKP)); }
+  }
+  if (!options.sectionId && ordered.length && options.includeUnplaced) {
+    const outlinedNodeIds = new Set(ordered.flatMap(item => item.nodeId ? [item.nodeId] : []));
+    const unplaced = snapshot.nodes.filter(node => !outlinedNodeIds.has(node.id));
+    if (unplaced.length) {
+      result.push('## アウトライン未配置');
+      for (const node of unplaced) { const doc = snapshot.documents.find(document => document.id === node.documentId); result.push(`### ${node.title || '無題'}\n\n${doc ? blocks(doc.content, snapshot, options.includeKP) : ''}`); }
+    }
   }
   return result.filter(Boolean).join('\n\n').trimEnd() + '\n';
 }

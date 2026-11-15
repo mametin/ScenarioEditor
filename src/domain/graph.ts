@@ -11,10 +11,10 @@ export function changeGraph(source: Snapshot, change: (draft: Snapshot) => void)
 export function createNode(draft: Snapshot, position: Point, title = '新しいノード', typeId = draft.nodeTypes[0].id): string {
   const id = crypto.randomUUID(); const documentId = crypto.randomUUID(); const now = new Date().toISOString();
   draft.documents.push({ id: documentId, createdAt: now, updatedAt: now, content: [] });
-  draft.nodes.push({ id, title, typeId, documentId, fields: {}, tagIds: [], position, parentGroupId: null, createdAt: now, updatedAt: now });
+  draft.nodes.push({ id, title, typeId, documentId, fields: {}, tagIds: [], position, parentGroupId: null, productionStatus: 'draft', createdAt: now, updatedAt: now });
   return id;
 }
-export function updateNode(draft: Snapshot, id: string, patch: Partial<Pick<ScenarioNode, 'title' | 'typeId' | 'tagIds'>>) {
+export function updateNode(draft: Snapshot, id: string, patch: Partial<Pick<ScenarioNode, 'title' | 'typeId' | 'tagIds' | 'productionStatus'>>) {
   const node = draft.nodes.find(n => n.id === id); if (!node) throw new Error('ノードが見つかりません');
   Object.assign(node, patch, { updatedAt: new Date().toISOString() });
 }

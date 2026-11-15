@@ -5,6 +5,7 @@
 .writing-node-grip{flex:none;width:30px;padding:4px;border:0;background:transparent;color:var(--muted);cursor:grab;touch-action:none;}
 .writing-node-grip:active{cursor:grabbing;}
 .writing-node-row.drop-before{box-shadow:inset 0 2px var(--accent);}
+.writing-title-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(140px,200px);align-items:end;gap:12px}.writing-title-row>label{display:block;min-width:0}.writing-title-row>label>select{display:block;width:100%;padding:10px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink);font:inherit}@media(max-width:700px){.writing-title-row{grid-template-columns:1fr}}
 .writing-node-row.drop-after{box-shadow:inset 0 -2px var(--accent);}
 .writing-workspace{grid-template-columns:var(--writing-list-width,280px) 5px minmax(0,1fr);}
 .writing-workspace.writing-focus{grid-template-columns:1fr;}
