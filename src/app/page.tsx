@@ -45,6 +45,7 @@ export default function Home() {
   const [online, setOnline] = useState(true);
   const [view, setView] = useState<'overview' | 'graph' | 'writing' | 'entities' | 'types' | 'tags' | 'outline'>('overview');
   const [openedEntity, setOpenedEntity] = useState<string>();
+  const [entityRevealRequest, setEntityRevealRequest] = useState(0);
   const [openedNode, setOpenedNode] = useState<string>();
   const [editorTabs, setEditorTabs] = useState<EditorTabsState>(emptyEditorTabs);
   const [tabsProjectId, setTabsProjectId] = useState<string>();
@@ -249,7 +250,7 @@ export default function Home() {
       return current.tabs.some(tab => editorTargetKey(tab) === key) ? { ...current, activeKey: key } : openEditorTab(current, target);
     });
     if (target.kind === 'node') { setOpenedNode(target.id); setView('writing'); }
-    else { setOpenedEntity(target.id); setView('entities'); }
+    else { setOpenedEntity(target.id); setEntityRevealRequest(value => value + 1); setView('entities'); }
   }
   function navigateEditorTarget(target: EditorTarget, pin = false, addHistory = true) {
     const key = editorTargetKey(target);
@@ -304,7 +305,7 @@ export default function Home() {
   function PhaseThreeContent() {
     if (!active) return null;
     if (view === 'writing') return <div className={`writing-session${currentPinnedReferenceId ? ' has-reference' : ''}`}><div className="writing-session-main"><WritingWorkspace key={`${active.project.id}-${openedNode ?? ''}`} snapshot={active} onChange={saveEditor} selectedNodeId={openedNode} onOpenEntity={id => navigateEditorTarget({ kind: 'entity', id })} onOpenNode={id => navigateEditorTarget({ kind: 'node', id })}/></div><PinnedReferencePanel snapshot={active} entityId={currentPinnedReferenceId} onClose={() => setPinnedReferenceId(null)} onOpen={id => navigateEditorTarget({ kind: 'entity', id })}/></div>
-    if (view === 'entities') return <EntityManager snapshot={active} onChange={saveEditor} selectedEntityId={openedEntity} onSelectEntity={setOpenedEntity} onNavigateEntity={id => navigateEditorTarget({ kind: 'entity', id })} pinnedEntityId={currentPinnedReferenceId} onPinEntity={id => setPinnedReferenceId(currentId => currentId === id ? null : id)} renderDescription={id => <RichTextEditor key={`${active.project.id}:${id}`} snapshot={active} documentId={id} onChange={saveEditor} onOpenEntity={nextId => navigateEditorTarget({ kind: 'entity', id: nextId })} onOpenNode={nextId => navigateEditorTarget({ kind: 'node', id: nextId })}/>} onSelectNode={id => navigateEditorTarget({ kind: 'node', id })}/>
+    if (view === 'entities') return <EntityManager snapshot={active} onChange={saveEditor} selectedEntityId={openedEntity} revealRequest={entityRevealRequest} onSelectEntity={setOpenedEntity} onNavigateEntity={id => navigateEditorTarget({ kind: 'entity', id })} pinnedEntityId={currentPinnedReferenceId} onPinEntity={id => setPinnedReferenceId(currentId => currentId === id ? null : id)} renderDescription={id => <RichTextEditor key={`${active.project.id}:${id}`} snapshot={active} documentId={id} onChange={saveEditor} onOpenEntity={nextId => navigateEditorTarget({ kind: 'entity', id: nextId })} onOpenNode={nextId => navigateEditorTarget({ kind: 'node', id: nextId })}/>} onSelectNode={id => navigateEditorTarget({ kind: 'node', id })}/>
     if (view === 'types') return <><NodeTypeManager snapshot={active} onChange={saveEditor}/><ConnectionTypeManager snapshot={active} onChange={saveEditor}/></>;
     if (view === 'tags') return <TagManager snapshot={active} onChange={saveEditor}/>;
     if (view === 'outline') return <OutlineWorkspace snapshot={active} onChange={saveEditor} selectedNodeId={outlineTargetNodeId} focusOutlineItemId={focusOutlineItemId} onSelectNode={id => { setGraphFocusNodeId(id); setView('graph'); }} onSelectEntity={id => navigateEditorTarget({ kind: 'entity', id })}/>;

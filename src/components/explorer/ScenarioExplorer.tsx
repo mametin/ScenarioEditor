@@ -5,6 +5,7 @@ import { filterNodes } from '../../domain/graph';
 import { filterNodesByOrganizerFolder } from '../../domain/organization';
 import { normalizeExplorerPreferences, readExplorerPreferences, writeExplorerPreferences, type ExplorerPreferences } from './preferences';
 import ExplorerItemButton from './ExplorerItemButton';
+import { openExplorerNode, revealExplorerNode } from './navigation';
 import './explorer.css';
 
 export function useExplorerPreferences(projectId: string, snapshot: Snapshot) {
@@ -59,6 +60,7 @@ export default function ScenarioExplorer({ snapshot, preferences, setPreferences
   const [newFolderName, setNewFolderName] = useState('');
   const [newFolderParentId, setNewFolderParentId] = useState('');
   const [bulkMessage, setBulkMessage] = useState('');
+  const [pendingRevealId, setPendingRevealId] = useState<string | null>(null);
   const filtersActive = !!preferences.query.trim() || !!preferences.typeId || preferences.tagIds.length > 0 || preferences.folderFilterId !== null;
   const matches = useMemo(() => {
     const matching = filterNodes(snapshot, preferences.query, preferences.typeId, preferences.tagIds, preferences.tagMode);
@@ -108,8 +110,7 @@ export default function ScenarioExplorer({ snapshot, preferences, setPreferences
     const ancestors: string[] = [];
     let parentId = nodeMap.get(id)?.parentGroupId ?? null;
     while (parentId) { ancestors.push(parentId); parentId = nodeMap.get(parentId)?.parentGroupId ?? null; }
-    if (!matches.has(id)) patch({ query: '', typeId: '', tagIds: [], folderFilterId: null, collapsedNodeIds: preferences.collapsedNodeIds.filter(value => !ancestors.includes(value)) });
-    else patch({ collapsedNodeIds: preferences.collapsedNodeIds.filter(value => !ancestors.includes(value)) });
+    if (!matches.has(id)) patch(current => openExplorerNode(current, id, false, ancestors));
     requestAnimationFrame(() => document.getElementById(`scenario-explorer-node-${id}`)?.scrollIntoView({ block: 'nearest' }));
   }, [preferences.selectedNodeId, matches, nodeMap]);
 
@@ -119,7 +120,7 @@ export default function ScenarioExplorer({ snapshot, preferences, setPreferences
   function openNode(id: string) {
     const ancestors: string[] = []; let parentId = nodeMap.get(id)?.parentGroupId ?? null;
     while (parentId) { ancestors.push(parentId); parentId = nodeMap.get(parentId)?.parentGroupId ?? null; }
-    patch(current => ({ ...current, selectedNodeId: id, selectedNodeIds: [], ...(matches.has(id) ? {} : { query: '', typeId: '', tagIds: [], folderFilterId: null }), collapsedNodeIds: current.collapsedNodeIds.filter(value => !ancestors.includes(value)) }));
+    patch(current => openExplorerNode(current, id, matches.has(id), ancestors));
     onOpenNode(id);
   }
   function toggleNodeSelection(id: string) {
@@ -133,9 +134,17 @@ export default function ScenarioExplorer({ snapshot, preferences, setPreferences
     const ancestors: string[] = [];
     let parentId = nodeMap.get(id)?.parentGroupId ?? null;
     while (parentId) { ancestors.push(parentId); parentId = nodeMap.get(parentId)?.parentGroupId ?? null; }
-    patch(current => ({ ...current, collapsedNodeIds: current.collapsedNodeIds.filter(value => !ancestors.includes(value)), query: '', typeId: '', tagIds: [] }));
-    requestAnimationFrame(() => document.getElementById(`scenario-explorer-node-${id}`)?.scrollIntoView({ block: 'nearest' }));
+    patch(current => revealExplorerNode(current, ancestors));
+    setPendingRevealId(id);
   }
+  useEffect(() => {
+    if (!pendingRevealId || filtersActive || !visibleIds.has(pendingRevealId)) return;
+    const frame = requestAnimationFrame(() => {
+      const row = document.getElementById(`scenario-explorer-node-${pendingRevealId}`);
+      if (row) { row.scrollIntoView({ block: 'nearest' }); setPendingRevealId(null); }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pendingRevealId, filtersActive, visibleIds]);
   function toggleCollapsed(id: string) {
     patch(current => ({ ...current, collapsedNodeIds: current.collapsedNodeIds.includes(id) ? current.collapsedNodeIds.filter(value => value !== id) : [...current.collapsedNodeIds, id] }));
   }
@@ -151,7 +160,7 @@ export default function ScenarioExplorer({ snapshot, preferences, setPreferences
     setRenamingId(undefined);
   }
   function handleTreeKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-    if (event.target instanceof HTMLElement && event.target.closest('input,textarea,select,[contenteditable="true"]')) return;
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || (event.target instanceof HTMLElement && event.target.closest('input,textarea,select,[contenteditable="true"]'))) return;
     const row = (event.target as HTMLElement).closest<HTMLElement>('[data-explorer-node-id]');
     const id = row?.dataset.explorerNodeId;
     if (!id) return;
@@ -194,8 +203,8 @@ export default function ScenarioExplorer({ snapshot, preferences, setPreferences
       }}>
         {nodeChildren.length > 0 ? <button className="explorer-disclosure" type="button" tabIndex={-1} aria-label={`${node.title || '無題'}を${isCollapsed ? '展開' : '折りたたむ'}`} aria-expanded={!isCollapsed} onClick={() => toggleCollapsed(node.id)}>{isCollapsed && !filtersActive ? '▸' : '▾'}</button> : <span className="explorer-disclosure-spacer"/>}
         {renamingId === node.id ? <form className="explorer-rename" onSubmit={saveRename}><input autoFocus aria-label="新しいノード名" value={renameDraft} onChange={event => setRenameDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) event.preventDefault(); if (event.key === 'Escape') setRenamingId(undefined); }}/><button type="submit">保存</button><button type="button" onClick={() => setRenamingId(undefined)}>取消</button></form> : <>
-          <div id={`scenario-explorer-node-${node.id}`} className="explorer-drag-target" tabIndex={-1} draggable={!disabled} onDragStart={event => { if (disabled) { event.preventDefault(); return; } event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', node.id); dragId.current = node.id; }} onDragEnd={() => { dragId.current = undefined; setDropTarget(null); }}>
-            <ExplorerItemButton icon={nodeChildren.length ? '▰' : type?.icon || '¶'} name={node.title || '無題'} detail={type?.name ?? 'タイプ未設定'} selected={isSelected} title={`${node.title || '無題'} · ${type?.name ?? ''} · ${node.productionStatus === 'ready' ? '完成' : node.productionStatus === 'review' ? '要確認' : '下書き'} · Ctrl/⌘クリックで複数選択`} onClick={event => { if (event.ctrlKey || event.metaKey) toggleNodeSelection(node.id); else openNode(node.id); }} trailing={<><small className={`explorer-production-status status-${node.productionStatus}`}>{node.productionStatus === 'ready' ? '完成' : node.productionStatus === 'review' ? '要確認' : '下書き'}</small>{nodeChildren.length > 0 && <small className="explorer-child-count">{nodeChildren.length}</small>}</>}/>
+          <div className="explorer-drag-target" draggable={!disabled} onDragStart={event => { if (disabled) { event.preventDefault(); return; } event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', node.id); dragId.current = node.id; }} onDragEnd={() => { dragId.current = undefined; setDropTarget(null); }}>
+            <ExplorerItemButton id={`scenario-explorer-node-${node.id}`} icon={nodeChildren.length ? '▰' : type?.icon || '¶'} name={node.title || '無題'} detail={type?.name ?? 'タイプ未設定'} selected={isSelected} title={`${node.title || '無題'} · ${type?.name ?? ''} · ${node.productionStatus === 'ready' ? '完成' : node.productionStatus === 'review' ? '要確認' : '下書き'} · Ctrl/⌘クリックで複数選択`} onClick={event => { if (event.ctrlKey || event.metaKey) toggleNodeSelection(node.id); else openNode(node.id); }} trailing={<><small className={`explorer-production-status status-${node.productionStatus}`}>{node.productionStatus === 'ready' ? '完成' : node.productionStatus === 'review' ? '要確認' : '下書き'}</small>{nodeChildren.length > 0 && <small className="explorer-child-count">{nodeChildren.length}</small>}</>}/>
           </div>
           <details className="explorer-row-menu"><summary aria-label={`${node.title || '無題'}の操作`} title="項目の操作">⋯</summary><div className="explorer-row-menu__items">
           <button type="button" disabled={disabled} onClick={() => toggleNodeSelection(node.id)}>{activeSelection.has(node.id) ? '選択を解除' : '複数選択に追加'}</button>

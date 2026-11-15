@@ -18,12 +18,13 @@ function readEntityListState(projectId: string, snapshot: Snapshot): EntityListS
   } catch { return { ...initialListState }; }
 }
 
-export default function EntityManager({ snapshot, onChange, onSelectNode, selectedEntityId, onSelectEntity, onNavigateEntity, renderDescription, pinnedEntityId, onPinEntity }: { snapshot: Snapshot; onChange: (snapshot: Snapshot) => void; onSelectNode?: (id: string) => void; selectedEntityId?: string; onSelectEntity?: (id: string) => void; onNavigateEntity?: (id: string) => void; renderDescription?: (documentId: string) => ReactNode; pinnedEntityId?: string | null; onPinEntity?: (id: string) => void }) {
+export default function EntityManager({ snapshot, onChange, onSelectNode, selectedEntityId, revealRequest = 0, onSelectEntity, onNavigateEntity, renderDescription, pinnedEntityId, onPinEntity }: { snapshot: Snapshot; onChange: (snapshot: Snapshot) => void; onSelectNode?: (id: string) => void; selectedEntityId?: string; revealRequest?: number; onSelectEntity?: (id: string) => void; onNavigateEntity?: (id: string) => void; renderDescription?: (documentId: string) => ReactNode; pinnedEntityId?: string | null; onPinEntity?: (id: string) => void }) {
   const [listState, setListState] = useState<EntityListState>(() => readEntityListState(snapshot.project.id, snapshot));
   const listStateRef = useRef(listState); listStateRef.current = listState;
   const listRef = useRef<HTMLDivElement>(null); const resizeTimer = useRef<number | undefined>(undefined);
   const [error, setError] = useState(''); const [tagQuery, setTagQuery] = useState(''); const [renamingId, setRenamingId] = useState<string>(); const [renameDraft, setRenameDraft] = useState('');
   const [draggedEntityId, setDraggedEntityId] = useState<string>(); const [dropTarget, setDropTarget] = useState<{ id: string; before: boolean } | null>(null);
+  const [pendingScrollEntityId, setPendingScrollEntityId] = useState<string | null>(null);
   useEffect(() => { setListState(readEntityListState(snapshot.project.id, snapshot)); }, [snapshot.project.id]);
   useEffect(() => { const timer = window.setTimeout(() => { try { localStorage.setItem(entityListKey(snapshot.project.id), JSON.stringify(listState)); } catch { /* Display preferences are optional; continue editing. */ } }, 120); return () => window.clearTimeout(timer); }, [snapshot.project.id, listState]);
   useEffect(() => () => { try { localStorage.setItem(entityListKey(snapshot.project.id), JSON.stringify(listStateRef.current)); } catch { /* Display preferences are optional; continue editing. */ } }, [snapshot.project.id]);
@@ -41,12 +42,26 @@ export default function EntityManager({ snapshot, onChange, onSelectNode, select
   const filtersActive = !!listState.query || !!listState.category || listState.tagIds.length > 0;
   const select = (nextId: string) => { setListState(current => ({ ...current, selectedId: nextId })); onSelectEntity?.(nextId); if (nextId) onNavigateEntity?.(nextId); };
   useEffect(() => {
-    if (!selectedEntityId || selectedEntityId === listState.selectedId) return;
-    const target = snapshot.entities.find(item => item.id === selectedEntityId); if (!target) return;
-    if (!filteredEntities.some(item => item.id === target.id)) setListState(current => ({ ...current, selectedId: target.id, query: '', category: '', tagIds: [] }));
-    else setListState(current => ({ ...current, selectedId: target.id }));
-    requestAnimationFrame(() => document.getElementById(`scenario-entity-${target.id}`)?.scrollIntoView({ block: 'nearest' }));
-  }, [selectedEntityId, snapshot.entities, filteredEntities, listState.selectedId]);
+    if (!selectedEntityId) { setPendingScrollEntityId(null); return; }
+    const target = snapshot.entities.find(item => item.id === selectedEntityId);
+    if (!target) { setPendingScrollEntityId(null); return; }
+    const visible = filteredEntities.some(item => item.id === target.id);
+    setListState(current => {
+      const next = visible
+        ? { ...current, selectedId: target.id }
+        : { ...current, selectedId: target.id, query: '', category: '', tagIds: [] };
+      return current.selectedId === next.selectedId && current.query === next.query && current.category === next.category && current.tagIds.length === next.tagIds.length ? current : next;
+    });
+    setPendingScrollEntityId(target.id);
+  }, [selectedEntityId, revealRequest, snapshot.project.id]);
+  useEffect(() => {
+    if (!pendingScrollEntityId || !filteredEntities.some(item => item.id === pendingScrollEntityId)) return;
+    const frame = requestAnimationFrame(() => {
+      const row = document.getElementById(`scenario-entity-${pendingScrollEntityId}`);
+      if (row) { row.scrollIntoView({ block: 'nearest' }); setPendingScrollEntityId(null); }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pendingScrollEntityId, filteredEntities]);
   const commit = (change: (draft: Snapshot) => void) => { try { onChange(changeEntities(snapshot, change)); setError(''); } catch(e) { setError(e instanceof Error ? e.message : '変更に失敗しました'); } };
   const patch = (value: Partial<Pick<ScenarioEntity, 'name' | 'category' | 'aliases' | 'tagIds'>>) => entity && commit(d => updateEntity(d, entity.id, value));
   function create() { let next = ''; commit(d => { next = createEntity(d, listState.category || 'NPC'); }); if (next) select(next); }
@@ -63,7 +78,7 @@ export default function EntityManager({ snapshot, onChange, onSelectNode, select
       {snapshot.tags.length > 0 && <details className="explorer-tag-filter"><summary>タグで絞り込む{listState.tagIds.length > 0 && <span> · {listState.tagIds.length}</span>}</summary><label>タグを検索<input value={tagQuery} onChange={event => setTagQuery(event.target.value)} placeholder="タグ名"/></label><label>一致条件<select value={listState.tagMode} onChange={event => setListState(current => ({ ...current, tagMode: event.target.value as EntityListState['tagMode'] }))}><option value="or">いずれか（OR）</option><option value="and">すべて（AND）</option></select></label><div className="explorer-tag-options">{visibleTags.map(tag => <label key={tag.id}><input type="checkbox" checked={listState.tagIds.includes(tag.id)} onChange={event => setListState(current => ({ ...current, tagIds: event.target.checked ? [...current.tagIds, tag.id] : current.tagIds.filter(id => id !== tag.id) }))}/><span>{tag.name}</span></label>)}</div></details>}
       {filtersActive && <div className="explorer-filter-status" role="status">絞り込み中：{filteredEntities.length}件 <button type="button" onClick={() => setListState(current => ({ ...current, query: '', category: '', tagIds: [] }))}>解除</button></div>}
       <div className="entity-list explorer-tree-scroll" ref={listRef} role="list" onScroll={event => { const scrollTop = event.currentTarget.scrollTop; window.clearTimeout(resizeTimer.current); resizeTimer.current = window.setTimeout(() => setListState(current => ({ ...current, scrollTop })), 140); }}>
-        {filteredEntities.map((item, index) => { const dropClass = dropTarget?.id === item.id ? (dropTarget.before ? 'explorer-drop-before' : 'explorer-drop-after') : ''; return <div className={`entity-list-row explorer-row${item.id === id ? ' is-selected' : ''}${dropClass}`} role="listitem" key={item.id} onDragOver={event => { event.stopPropagation(); const sourceId = draggedEntityId ?? event.dataTransfer.getData('text/plain'); if (filtersActive || !sourceId || sourceId === item.id) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; const before = event.clientY < event.currentTarget.getBoundingClientRect().top + event.currentTarget.getBoundingClientRect().height / 2; setDropTarget(old => old?.id === item.id && old.before === before ? old : { id: item.id, before }); }} onDrop={event => { event.stopPropagation(); if (filtersActive) return; event.preventDefault(); const sourceId = draggedEntityId ?? event.dataTransfer.getData('text/plain'); if (sourceId && sourceId !== item.id) reorder(sourceId, item.id, event.clientY < event.currentTarget.getBoundingClientRect().top + event.currentTarget.getBoundingClientRect().height / 2); setDropTarget(null); setDraggedEntityId(undefined); }}>
+        {filteredEntities.map((item, index) => { const dropClass = dropTarget?.id === item.id ? (dropTarget.before ? 'explorer-drop-before' : 'explorer-drop-after') : ''; return <div id={`scenario-entity-${item.id}`} className={`entity-list-row explorer-row${item.id === id ? ' is-selected' : ''}${dropClass}`} role="listitem" key={item.id} onDragOver={event => { event.stopPropagation(); const sourceId = draggedEntityId ?? event.dataTransfer.getData('text/plain'); if (filtersActive || !sourceId || sourceId === item.id) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; const before = event.clientY < event.currentTarget.getBoundingClientRect().top + event.currentTarget.getBoundingClientRect().height / 2; setDropTarget(old => old?.id === item.id && old.before === before ? old : { id: item.id, before }); }} onDrop={event => { event.stopPropagation(); if (filtersActive) return; event.preventDefault(); const sourceId = draggedEntityId ?? event.dataTransfer.getData('text/plain'); if (sourceId && sourceId !== item.id) reorder(sourceId, item.id, event.clientY < event.currentTarget.getBoundingClientRect().top + event.currentTarget.getBoundingClientRect().height / 2); setDropTarget(null); setDraggedEntityId(undefined); }}>
           {renamingId === item.id ? <form className="entity-rename" onSubmit={rename}><input autoFocus aria-label="新しい資料名" value={renameDraft} onChange={event => setRenameDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) event.preventDefault(); if (event.key === 'Escape') setRenamingId(undefined); }}/><button type="submit">保存</button><button type="button" onClick={() => setRenamingId(undefined)}>取消</button></form> : <>
             <ExplorerItemButton icon={item.category === 'NPC' ? '◈' : item.category === '場所' ? '⌖' : item.category === 'アイテム' ? '◇' : 'Aa'} name={item.name || '無名'} detail={item.category} selected={item.id === id} onClick={() => select(item.id)} title={`${item.name || '無名'} · ${item.category}`} className="entity-item-button"/>
             <details className="explorer-row-menu"><summary aria-label={`${item.name || '無名'}の操作`} title="項目の操作">⋯</summary><div className="explorer-row-menu__items"><button type="button" onClick={() => select(item.id)}>資料を開く</button><button type="button" onClick={() => { setRenamingId(item.id); setRenameDraft(item.name); }}>名前を変更</button><button type="button" disabled={filtersActive || index === 0} onClick={() => reorder(item.id, filteredEntities[index - 1]!.id, true)}>上へ移動</button><button type="button" disabled={filtersActive || index === filteredEntities.length - 1} onClick={() => reorder(item.id, filteredEntities[index + 1]!.id, false)}>下へ移動</button></div></details>

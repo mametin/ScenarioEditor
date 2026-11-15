@@ -5,6 +5,7 @@ import { parseSnapshot } from '../domain/schema';
 import { changeGraph, changeNodesTag, connect, createNode, deleteNodes, duplicateNode, filterNodes, GraphHistory, groupNodes, moveNodes, moveNodesToParent, ungroup, updateNode } from '../domain/graph';
 import { toFlowNodes, toFlowEdges } from '../components/graph/adapter';
 import { ProjectRepository, ScenarioDatabase } from '../storage/database';
+import { createOrganizerFolder, deleteOrganizerFolder } from '../domain/organization';
 
 function fixture() { const p = createProject('テスト'); const a = createNode(p, { x: 100, y: 100 }, '導入'); const b = createNode(p, { x: 400, y: 200 }, '探索'); return { p, a, b }; }
 describe('グラフ操作', () => {
@@ -26,6 +27,7 @@ describe('グラフ操作', () => {
 });
 describe('Undo / Redo', () => {
   it('削除したノード・接続・アウトラインをまとめて復元する', () => { const {p,a,b} = fixture(); connect(p,a,b,'dependency'); p.outline.push({ id:crypto.randomUUID(),nodeId:a,parentId:null,order:0,title:'導入' }); const h = new GraphHistory(); h.record(p); const next=changeGraph(p,d => deleteNodes(d,new Set([a]))); const restored=h.undo(next)!; expect(restored.nodes).toEqual(p.nodes); expect(restored.edges).toEqual(p.edges); expect(restored.outline).toEqual(p.outline); expect(h.redo(restored)?.nodes).toEqual(next.nodes); });
+  it('フォルダー削除もグラフUndo/Redoで所属だけを復元する', () => { const {p,a}=fixture(); const created=createOrganizerFolder(p,'親'); const folder=created.organizerFolders[0]; const before={...created,organizerFolders:[{...folder,nodeIds:[a]}]}; const history=new GraphHistory(); history.record(before); const deleted=deleteOrganizerFolder(before,folder.id); expect(deleted.organizerFolders).toHaveLength(0); const restored=history.undo(deleted)!; expect(restored.organizerFolders).toEqual(before.organizerFolders); expect(restored.nodes).toEqual(before.nodes); const redone=history.redo(restored)!; expect(redone.organizerFolders).toEqual(deleted.organizerFolders); });
   it('制作状態の変更をUndo・Redoで復元する', () => { const {p,a}=fixture(); const history=new GraphHistory(); history.record(p); const next=changeGraph(p,d=>updateNode(d,a,{productionStatus:'ready'})); expect(history.undo(next)?.nodes.find(node=>node.id===a)?.productionStatus).toBe('draft'); expect(history.redo(p)?.nodes.find(node=>node.id===a)?.productionStatus).toBe('ready'); });
   it('概要で編集したプロジェクト名はグラフUndoで巻き戻さない', () => { const {p,a} = fixture(); const h = new GraphHistory(); h.record(p); const next=changeGraph(p,d => updateNode(d,a,{ title:'変更' })); next.project.title='新しいプロジェクト名'; expect(h.undo(next)?.project.title).toBe('新しいプロジェクト名'); });
   it('Undo後の新操作でRedo履歴を破棄する', () => { const {p,a} = fixture(); const h=new GraphHistory(); h.record(p); const next=changeGraph(p,d => updateNode(d,a,{title:'変更'})); const previous=h.undo(next)!; h.record(previous); expect(h.canRedo).toBe(false); });

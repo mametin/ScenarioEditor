@@ -48,13 +48,24 @@ export function deleteOrganizerFolder(source: Snapshot, id: string): Snapshot {
   const folder = source.organizerFolders.find(item => item.id === id);
   if (!folder) throw new Error('フォルダーが見つかりません');
   const parent = folder.parentId;
-  const folders = source.organizerFolders.filter(item => item.id !== id).map(item => item.parentId === id ? { ...item, parentId: parent } : item);
+  // Clone every remaining folder before changing membership or sibling order.
+  // A shallow filtered array still shares folder objects with the source snapshot.
+  const folders = source.organizerFolders.filter(item => item.id !== id).map(item => ({
+    ...item,
+    parentId: item.parentId === id ? parent : item.parentId,
+    nodeIds: [...item.nodeIds],
+  }));
   if (parent && folder.nodeIds.length) {
     const parentFolder = folders.find(item => item.id === parent)!;
     parentFolder.nodeIds = [...parentFolder.nodeIds, ...folder.nodeIds.filter(nodeId => !parentFolder.nodeIds.includes(nodeId))];
   }
-  const siblings = folders.filter(item => item.parentId === parent).sort((a, b) => a.order - b.order);
-  siblings.forEach((item, index) => { item.order = index; });
+  const promotedIds = new Set(source.organizerFolders.filter(item => item.parentId === id).map(item => item.id));
+  const siblings = folders.filter(item => item.parentId === parent && !promotedIds.has(item.id)).sort((a, b) => a.order - b.order);
+  const promotedChildren = folders.filter(item => promotedIds.has(item.id)).sort((a, b) => a.order - b.order);
+  const before = siblings.filter(item => item.order < folder.order);
+  const after = siblings.filter(item => item.order >= folder.order);
+  const orderedSiblings = [...before, ...promotedChildren, ...after];
+  orderedSiblings.forEach((item, index) => { item.order = index; });
   return parseSnapshot({ ...source, project: { ...source.project, updatedAt: new Date().toISOString() }, organizerFolders: folders });
 }
 
