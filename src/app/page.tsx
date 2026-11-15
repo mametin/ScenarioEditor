@@ -8,6 +8,7 @@ import { Autosave, type SaveStatus } from '../storage/autosave';
 import ColorPicker from '../components/ColorPicker';
 import CommandSearch from '../components/CommandSearch';
 import EditorTabs from '../components/workbench/EditorTabs';
+import ApplicationMenu, { type ApplicationMenuGroup } from '../components/workbench/ApplicationMenu';
 import PinnedReferencePanel from '../components/entities/PinnedReferencePanel';
 import { closeEditorTab, editorTargetKey, emptyEditorTabs, openEditorTab, pinEditorTab, readEditorTabs, writeEditorTabs, type EditorTab, type EditorTarget, type EditorTabsState } from '../components/workbench/session';
 const GraphEditor = dynamic(() => import('../components/graph/GraphEditor'), { ssr: false, loading: () => <p>グラフを読み込んでいます…</p> });
@@ -65,6 +66,9 @@ export default function Home() {
   const [themeReady, setThemeReady] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [navExpanded, setNavExpanded] = useState(false);
+  const [navigationVisible, setNavigationVisible] = useState(false);
+  const menuImport = useRef<HTMLInputElement>(null);
+  const helpDialog = useRef<HTMLDialogElement>(null);
   const [lastBackupAt, setLastBackupAt] = useState<string>();
   const [lastSavedAt, setLastSavedAt] = useState<string>();
   const [storageEstimate, setStorageEstimate] = useState<{ usage: number; quota?: number }>();
@@ -317,8 +321,47 @@ export default function Home() {
   const contrastNeedsAttention = accentOnSurface < 4.5 || whiteOnAccent < 4.5;
   const projectTabsReady = !!active && tabsProjectId === active.project.id;
   const currentPinnedReferenceId = projectTabsReady && active?.entities.some(entity => entity.id === pinnedReferenceId) ? pinnedReferenceId : null;
-  return <div className={`app${view === 'graph' ? ' graph-mode' : ''}${focus ? ' focus' : ''}${active ? ' has-project' : ''}${active && view !== 'overview' ? ' workspace-mode' : ''}${navExpanded ? ' is-nav-expanded' : ''}`}>
+  const menuGroups: ApplicationMenuGroup[] = [
+    { label: 'ファイル', items: [
+      { label: '新規プロジェクト', disabled: !ready || busy, action: () => void run(async () => { await settle(); const row = await repo.current!.save(createProject(), 0); await refresh(); select(row); setView('overview'); }) },
+      { label: 'プロジェクトを開く', disabled: !ready || busy, action: () => setView('overview') },
+      { label: 'JSONファイルから復元…', disabled: !ready || busy, action: () => menuImport.current?.click() },
+      { label: '今すぐ端末に保存', disabled: !active || busy, action: () => void run(settle) },
+      { label: 'JSONバックアップを保存', disabled: !active, action: download },
+      { label: 'Markdown・PDFを書き出す…', disabled: !active || busy, action: () => switchScreen('outline') },
+      { label: '保存履歴を開く', disabled: !active || busy, action: () => void run(async () => { await settle(); setHistory(await repo.current!.revisions(active!.project.id)); setView('overview'); }) },
+    ] },
+    { label: '編集', items: [
+      { label: 'プロジェクト内を検索…', disabled: !active, shortcut: 'Ctrl / ⌘ K', action: () => setSearchOpen(true) },
+      { label: '本文を編集', disabled: !active || busy, action: () => switchScreen('writing') },
+      { label: '設定資料を編集', disabled: !active || busy, action: () => switchScreen('entities') },
+      { label: '前の項目へ戻る', disabled: !active || !backHistory.length || busy, action: goBack },
+      { label: '次の項目へ進む', disabled: !active || !forwardHistory.length || busy, action: goForward },
+    ] },
+    { label: '表示', items: [
+      ...screens.filter(screen => !['types', 'tags'].includes(screen.id)).map(screen => ({ label: screen.label, checked: view === screen.id, disabled: (screen.id !== 'overview' && !active) || busy, action: () => switchScreen(screen.id) })),
+      { label: '左の画面ナビゲーション', checked: navigationVisible, action: () => setNavigationVisible(value => !value) },
+      { label: 'ダークモード', checked: theme === 'dark', action: () => setTheme(value => value === 'dark' ? 'light' : 'dark') },
+    ] },
+    { label: 'シナリオ', items: [
+      { label: 'グラフで構成を編集', disabled: !active || busy, action: () => switchScreen('graph') },
+      { label: '章構成・出力前チェック', disabled: !active || busy, action: () => switchScreen('outline') },
+      { label: 'ノード・接続タイプを管理', disabled: !active || busy, action: () => switchScreen('types') },
+      { label: 'タグを管理', disabled: !active || busy, action: () => switchScreen('tags') },
+    ] },
+    { label: 'ヘルプ', items: [{ label: '操作と保存について', action: () => helpDialog.current?.showModal() }] },
+  ];
+  return <div className={`app${view === 'graph' ? ' graph-mode' : ''}${focus ? ' focus' : ''}${active ? ' has-project' : ''}${active && view !== 'overview' ? ' workspace-mode' : ''}${navExpanded ? ' is-nav-expanded' : ''}${navigationVisible ? '' : ' navigation-hidden'}`}>
+    <input ref={menuImport} type="file" accept="application/json,.json" hidden aria-label="JSONバックアップを選択" onChange={event => { const file = event.target.files?.[0]; if (file) void run(() => importFile(file)); event.target.value = ''; }}/>
+    <dialog ref={helpDialog} className="application-help" aria-labelledby="application-help-title">
+      <h2 id="application-help-title">操作と保存について</h2>
+      <p>上部メニューから保存・検索・画面切り替えを選べます。「表示」から左の画面ナビゲーションを再表示できます。ノードや資料の一覧は各作業画面で利用できます。</p>
+      <p>メニューは矢印キーで移動、Enterで実行、Escで閉じます。本文のUndo・Redoは本文ツールバー、グラフのUndo・Redoはグラフツールバーから操作できます。</p>
+      <p>作品はこのブラウザに自動保存されます。「今すぐ端末に保存」は保存待ちの変更を保存します。別の端末へ移す場合やバックアップには「JSONバックアップを保存」を利用してください。JSONからの復元は別プロジェクトとして読み込みます。</p>
+      <form method="dialog"><button autoFocus>閉じる</button></form>
+    </dialog>
     <header className="topbar"><a className="brand" href="/" aria-label="Scenario Editor ホーム">◈ <span>SCENARIO <b>EDITOR</b></span></a><div className="topbar-context"><strong>{active?.project.title || 'Scenario Editor'}</strong><span>{active ? ` / ${screenLabels[view]}` : ' / シナリオ執筆環境'}</span></div><button type="button" className="search-launch" disabled={!active} aria-keyshortcuts="Control+K Meta+K" onClick={() => setSearchOpen(true)}>検索 <kbd>Ctrl K</kbd></button><div className="appearance-controls">{view === 'overview' && <button className="focus-toggle" onClick={() => setFocus(!focus)}>{focus ? '通常表示' : '集中表示'}</button>}<details className="appearance-settings"><summary>外観</summary><div className="appearance-picker-list"><ColorPicker label="テーマカラー" value={themeColor} onChange={setThemeColor}/><ColorPicker label="背景色" value={backgroundColor} onChange={setBackgroundColor}/><label className="appearance-select">UIフォント<select value={uiFont} onChange={event => setUiFont(event.target.value as typeof uiFont)}><option value="mono">Consolas / Courier New</option><option value="sans">ゴシック体</option></select></label><label className="appearance-select">本文フォント<select value={bodyFont} onChange={event => setBodyFont(event.target.value as typeof bodyFont)}><option value="sans">ゴシック体</option><option value="serif">明朝体</option><option value="mono">Consolas / Courier New</option></select></label><label className="appearance-select">本文サイズ <output>{bodyFontSize}px</output><input type="range" min="14" max="24" step="1" value={bodyFontSize} onChange={event => setBodyFontSize(Number(event.target.value))}/></label><section className="contrast-check" aria-live="polite"><strong>テーマ色のコントラスト</strong><span>テーマ色／画面面 <b>{accentOnSurface.toFixed(1)}:1</b></span><span>白文字／テーマ色 <b>{whiteOnAccent.toFixed(1)}:1</b></span><p className={contrastNeedsAttention ? 'needs-attention' : 'contrast-ok'}>{contrastNeedsAttention ? '4.5:1を下回る組み合わせがあります。テーマ色または背景色を調整してください。' : '通常サイズの文字で読みやすさの目安を満たしています。'}</p></section></div></details><button className="theme-toggle" aria-label={theme === 'dark' ? 'ライトモードに切り替え' : 'ダークモードに切り替え'} aria-pressed={theme === 'dark'} onClick={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? '☀ ライト' : '☾ ダーク'}</button></div></header>
+    <ApplicationMenu groups={menuGroups}/>
     {active && <nav className={`activity-bar${navExpanded ? ' is-expanded' : ''}`} aria-label="作業画面"><button className="activity-bar__toggle" type="button" aria-label={navExpanded ? 'ナビゲーションを折りたたむ' : 'ナビゲーションを展開'} aria-expanded={navExpanded} title={navExpanded ? 'ナビゲーションを折りたたむ' : 'ナビゲーションを展開'} onClick={() => { const next = !navExpanded; setNavExpanded(next); try { localStorage.setItem('scenario-editor-nav-expanded', String(next)); } catch { /* Keep the current-session setting when browser storage is unavailable. */ } }}><span aria-hidden="true">{navExpanded ? '‹' : '›'}</span><small>{navExpanded ? 'ナビを閉じる' : 'ナビを開く'}</small></button><div className="activity-bar__divider"/><p className="activity-bar__heading">{navExpanded ? 'WORKSPACE' : ' '}</p>{screens.map(screen => <button className="activity-bar__item" key={screen.id} type="button" title={screen.label} aria-label={screen.label} aria-current={view === screen.id ? 'page' : undefined} onClick={() => switchScreen(screen.id)}><span aria-hidden="true">{screen.icon}</span><small>{screen.label}</small></button>)}</nav>}
     <div className="workspace" hidden={view !== 'overview'} style={view !== 'overview' ? { display: 'none' } : undefined}>
       <aside className="sidebar"><div className="eyebrow">YOUR WORKSPACE</div><h2>シナリオ</h2><button className="primary wide" disabled={!ready || busy} onClick={() => void run(async () => { await settle(); const row = await repo.current!.save(createProject(), 0); await refresh(); select(row); })}>＋ 新規プロジェクト</button>

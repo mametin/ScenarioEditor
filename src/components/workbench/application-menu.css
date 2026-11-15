@@ -1,0 +1,30 @@
+.application-menu { display:flex; align-items:center; gap:2px; padding:0 12px; min-height:34px; background:var(--surface-toolbar); border-bottom:1px solid var(--line); color:var(--ink); position:relative; z-index:90; }
+.application-menu-group { position:relative; }
+.application-menu .application-menu-trigger { border:0; border-radius:4px; background:transparent; color:inherit; padding:5px 12px; font:inherit; font-size:13px; min-height:30px; }
+.application-menu-trigger:hover,.application-menu-trigger[aria-expanded=true] { background:var(--surface-active); }
+.application-menu-panel { position:absolute; top:calc(100% + 3px); left:0; width:260px; max-width:calc(100vw - 24px); max-height:70dvh; overflow-y:auto; padding:5px; background:var(--paper); border:1px solid var(--line); border-radius:7px; box-shadow:0 8px 28px #0003; }
+.application-menu-group:last-child .application-menu-panel { left:auto; right:0; }
+.application-menu-panel button { display:flex; align-items:center; gap:7px; width:100%; min-height:35px; padding:6px 9px; border:0; text-align:left; font:inherit; font-size:13px; background:transparent; color:var(--ink); }
+.application-menu-panel button:focus-visible,.application-menu-panel button:hover:not(:disabled) { background:var(--surface-active); outline:2px solid var(--accent); outline-offset:-2px; }
+.application-menu-panel button:disabled { opacity:.4; cursor:default; }
+.application-menu-check { flex:0 0 13px; color:var(--accent); }
+.application-menu-panel kbd { margin-left:auto; font:inherit; font-size:11px; color:var(--muted); }
+.app.has-project { grid-template-rows:54px 34px minmax(0,1fr) 25px; }
+.app.has-project > .application-menu { grid-column:1 / -1; grid-row:2; }
+.app.has-project > .activity-bar,.app.has-project > .workspace,.app.has-project > .workspace-surface { grid-row:3; }
+.app.has-project > .bottom { grid-row:4; }
+.app.has-project.navigation-hidden { grid-template-columns:minmax(0,1fr); }
+.app.navigation-hidden > .activity-bar { display:none; }
+.app.has-project.navigation-hidden > .workspace,.app.has-project.navigation-hidden > .workspace-surface { grid-column:1 / -1; }
+.application-help { max-width:min(520px,calc(100vw - 32px)); max-height:80dvh; overflow:auto; padding:24px; background:var(--paper); color:var(--ink); border:1px solid var(--line); border-radius:10px; }
+.application-help::backdrop { background:#0006; }
+.application-help h2 { margin-top:0; }.application-help p { line-height:1.8; }.application-help form { text-align:right; }
+@media(min-width:701px) and (max-width:1100px) { .app.has-project.is-nav-expanded > .activity-bar { top:88px; } }
+@media(max-width:700px) {
+  .app:not(.has-project) > .application-menu { position:relative; top:0; }
+  .application-menu { padding:0 4px; position:sticky; top:52px; min-height:40px; z-index:90; }
+  .application-menu .application-menu-trigger { padding:7px 9px; min-height:38px; }
+  .application-menu-panel { position:fixed; top:94px; left:8px; right:auto; width:calc(100vw - 16px); max-width:none; }
+  .application-menu-group:last-child .application-menu-panel { left:8px; right:auto; }
+  .application-menu-panel button { min-height:44px; }
+}
