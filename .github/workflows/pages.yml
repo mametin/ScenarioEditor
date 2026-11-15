@@ -36,6 +36,11 @@ jobs:
           REPOSITORY: ${{ github.event.repository.name }}
           OWNER: ${{ github.repository_owner }}
       - run: npm run build
+        env:
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+          NEXT_PUBLIC_GOOGLE_API_KEY: ${{ vars.GOOGLE_API_KEY }}
+          NEXT_PUBLIC_GOOGLE_APP_ID: ${{ vars.GOOGLE_APP_ID }}
+          NEXT_PUBLIC_AI_API_URL: ${{ vars.AI_API_URL }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: out

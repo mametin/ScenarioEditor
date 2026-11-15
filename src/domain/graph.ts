@@ -180,7 +180,10 @@ export class GraphHistory {
   get canUndo() { return this.past.length > 0; }
   get canRedo() { return this.future.length > 0; }
   record(before: Snapshot) { this.past.push(structuredClone(before)); if (this.past.length > 100) this.past.shift(); this.future = []; }
-  private restore(current: Snapshot, saved: Snapshot): Snapshot { return { ...current, nodes: saved.nodes, edges: saved.edges, documents: saved.documents, tags: saved.tags, outline: saved.outline, organizerFolders: saved.organizerFolders }; }
+  // Graph history owns graph/organization state only. Documents can be edited
+  // outside the graph between two graph operations, so restoring an older
+  // snapshot here must never roll back the current text.
+  private restore(current: Snapshot, saved: Snapshot): Snapshot { return { ...current, nodes: saved.nodes, edges: saved.edges, tags: saved.tags, outline: saved.outline, organizerFolders: saved.organizerFolders }; }
   undo(current: Snapshot): Snapshot | undefined { const previous = this.past.pop(); if (!previous) return; this.future.push(structuredClone(current)); return this.restore(current, previous); }
   redo(current: Snapshot): Snapshot | undefined { const next = this.future.pop(); if (!next) return; this.past.push(structuredClone(current)); return this.restore(current, next); }
 }

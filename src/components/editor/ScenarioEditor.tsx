@@ -10,7 +10,7 @@ import { recoveryKey, persistRecovery } from './recovery';
 import { hideEntityHover, showEntityHover } from '../entities/entity-hover';
 import './editor.css';
 
-export type ScenarioEditorProps = { snapshot: Snapshot; documentId: string; onChange: (snapshot: Snapshot) => void; onOpenEntity?: (id: string) => void; onOpenNode?: (id: string) => void; disabled?: boolean };
+export type ScenarioEditorProps = { snapshot: Snapshot; documentId: string; onChange: (snapshot: Snapshot) => void; onOpenEntity?: (id: string) => void; onOpenNode?: (id: string) => void; onSelectionTextChange?: (selection: { documentId: string; updatedAt: string; from: number; to: number; text: string; safeForReplacement: boolean }) => void; disabled?: boolean };
 export default function ScenarioEditor(props: ScenarioEditorProps) { return <EditorInstance key={`${props.snapshot.project.id}:${props.documentId}`} {...props}/>; }
 function EditorInstance(props: ScenarioEditorProps) {
   const latest = useRef(props); latest.current = props;
@@ -67,6 +67,12 @@ function EditorInstance(props: ScenarioEditorProps) {
     editorProps: { attributes: { 'aria-label': 'シナリオ本文', class: 'scenario-prose' } },
     onSelectionUpdate: ({ editor }) => {
       const { anchor, head } = editor.state.selection;
+      const from = Math.min(anchor, head); const to = Math.max(anchor, head);
+      const text = from === to ? '' : editor.state.doc.textBetween(from, to, '\n');
+      const start = editor.state.doc.resolve(from); const end = editor.state.doc.resolve(to);
+      let safeForReplacement = from !== to && start.parent === end.parent && start.parent.type.name === 'paragraph';
+      if (safeForReplacement) editor.state.doc.nodesBetween(from, to, node => { if (!node.isText || node.marks.length > 0) safeForReplacement = false; });
+      latest.current.onSelectionTextChange?.({ documentId: latest.current.documentId, updatedAt: latest.current.snapshot.documents.find(item => item.id === latest.current.documentId)?.updatedAt ?? '', from, to, text, safeForReplacement });
       window.clearTimeout(cursorSaveTimer.current);
       cursorSaveTimer.current = window.setTimeout(() => {
         try { localStorage.setItem(cursorKey, JSON.stringify({ anchor, head })); } catch { /* Cursor memory is optional; keep editing available. */ }
@@ -85,6 +91,25 @@ function EditorInstance(props: ScenarioEditorProps) {
       }
     },
   });
+  useEffect(() => {
+    if (!editor) return;
+    const applyProposal = (event: Event) => {
+      const detail = (event as CustomEvent<{ documentId: string; updatedAt: string; from: number; to: number; text: string }>).detail;
+      if (!detail || detail.documentId !== latest.current.documentId || !detail.text.trim()) return;
+      const currentDocument = latest.current.snapshot.documents.find(item => item.id === detail.documentId);
+      if (!currentDocument || currentDocument.updatedAt !== detail.updatedAt) { setError('AIの提案後に本文が編集されたため、古い提案は適用しませんでした。'); return; }
+      if (detail.from < 1 || detail.to > editor.state.doc.content.size - 1 || detail.from > detail.to) { setError('AI提案の対象範囲を確認できませんでした。'); return; }
+      const start = editor.state.doc.resolve(detail.from); const end = editor.state.doc.resolve(detail.to);
+      let safeForReplacement = start.parent === end.parent && start.parent.type.name === 'paragraph';
+      if (safeForReplacement) editor.state.doc.nodesBetween(detail.from, detail.to, node => { if (!node.isText || node.marks.length > 0) safeForReplacement = false; });
+      if (!safeForReplacement) { setError('段落構造・書式・参照を含む範囲は安全のため自動置換できません。'); return; }
+      const lines = detail.text.split('\n');
+      const content = lines.flatMap((part, index) => [...(part ? [{ type: 'text', text: part }] : []), ...(index < lines.length - 1 ? [{ type: 'hardBreak' }] : [])]);
+      editor.commands.insertContentAt({ from: detail.from, to: detail.to }, content);
+    };
+    window.addEventListener('scenario-editor-ai-apply', applyProposal);
+    return () => window.removeEventListener('scenario-editor-ai-apply', applyProposal);
+  }, [editor]);
   useEffect(() => { editor?.setEditable(!props.disabled && !prepared.error); }, [editor, props.disabled, prepared.error]);
   useEffect(() => {
     if (!editor || prepared.error || restoredCursorKey.current === cursorKey) return;

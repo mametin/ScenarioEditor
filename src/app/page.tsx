@@ -11,6 +11,7 @@ import EditorTabs from '../components/workbench/EditorTabs';
 import ApplicationMenu, { type ApplicationMenuGroup } from '../components/workbench/ApplicationMenu';
 import PinnedReferencePanel from '../components/entities/PinnedReferencePanel';
 import { closeEditorTab, editorTargetKey, emptyEditorTabs, openEditorTab, pinEditorTab, readEditorTabs, writeEditorTabs, type EditorTab, type EditorTarget, type EditorTabsState } from '../components/workbench/session';
+import { connectGoogleDrive, createGoogleDriveFile, disconnectGoogleDrive, googleDriveConfig, loadGoogleDriveSnapshot, pickGoogleDriveFile, prepareGoogleDrive, readDriveBinding, updateGoogleDriveFile, writeDriveBinding, type DriveBinding, type DriveCredential } from '../storage/google-drive';
 const GraphEditor = dynamic(() => import('../components/graph/GraphEditor'), { ssr: false, loading: () => <p>グラフを読み込んでいます…</p> });
 
 const RichTextEditor = dynamic(() => import('../components/editor/RichTextEditor'), { ssr: false });
@@ -21,6 +22,7 @@ const ConnectionTypeManager = dynamic(() => import('../components/types/Connecti
 const TagManager = dynamic(() => import('../components/types/TagManager'), { ssr: false });
 const OutlineWorkspace = dynamic(() => import('../components/OutlineWorkspace'), { ssr: false });
 const EntityHoverCard = dynamic(() => import('../components/entities/EntityHoverCard'), { ssr: false });
+const AIAssistantPanel = dynamic(() => import('../components/AIAssistantPanel'), { ssr: false });
 
 const labels = { saved: 'ローカル保存済み', pending: '未保存の変更あり', saving: '保存中…', error: '保存できませんでした' };
 const screens = [
@@ -72,6 +74,12 @@ export default function Home() {
   const [lastBackupAt, setLastBackupAt] = useState<string>();
   const [lastSavedAt, setLastSavedAt] = useState<string>();
   const [storageEstimate, setStorageEstimate] = useState<{ usage: number; quota?: number }>();
+  const [driveCredential, setDriveCredential] = useState<DriveCredential>();
+  const [driveBinding, setDriveBinding] = useState<DriveBinding>();
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiSelection, setAiSelection] = useState<{ documentId: string; updatedAt: string; from: number; to: number; text: string; safeForReplacement: boolean }>();
+  useEffect(() => { setAiSelection(undefined); }, [active?.project.id, openedNode, view]);
+  useEffect(() => { if (googleDriveConfig()) void prepareGoogleDrive().catch(() => { /* Retry on the user's explicit Drive action. */ }); }, []);
   const repo = useRef<ProjectRepository | undefined>(undefined);
   const saver = useRef<Autosave | undefined>(undefined);
   const lastSaveState = useRef<SaveStatus>('saved');
@@ -308,7 +316,7 @@ export default function Home() {
   }
   function PhaseThreeContent() {
     if (!active) return null;
-    if (view === 'writing') return <div className={`writing-session${currentPinnedReferenceId ? ' has-reference' : ''}`}><div className="writing-session-main"><WritingWorkspace key={`${active.project.id}-${openedNode ?? ''}`} snapshot={active} onChange={saveEditor} selectedNodeId={openedNode} onOpenEntity={id => navigateEditorTarget({ kind: 'entity', id })} onOpenNode={id => navigateEditorTarget({ kind: 'node', id })}/></div><PinnedReferencePanel snapshot={active} entityId={currentPinnedReferenceId} onClose={() => setPinnedReferenceId(null)} onOpen={id => navigateEditorTarget({ kind: 'entity', id })}/></div>
+    if (view === 'writing') return <div className={`writing-session${currentPinnedReferenceId ? ' has-reference' : ''}`}><div className="writing-session-main"><WritingWorkspace key={`${active.project.id}-${openedNode ?? ''}`} snapshot={active} onChange={saveEditor} selectedNodeId={openedNode} onOpenEntity={id => navigateEditorTarget({ kind: 'entity', id })} onOpenNode={id => navigateEditorTarget({ kind: 'node', id })} onSelectionTextChange={setAiSelection}/></div><PinnedReferencePanel snapshot={active} entityId={currentPinnedReferenceId} onClose={() => setPinnedReferenceId(null)} onOpen={id => navigateEditorTarget({ kind: 'entity', id })}/></div>
     if (view === 'entities') return <EntityManager snapshot={active} onChange={saveEditor} selectedEntityId={openedEntity} revealRequest={entityRevealRequest} onSelectEntity={setOpenedEntity} onNavigateEntity={id => navigateEditorTarget({ kind: 'entity', id })} pinnedEntityId={currentPinnedReferenceId} onPinEntity={id => setPinnedReferenceId(currentId => currentId === id ? null : id)} renderDescription={id => <RichTextEditor key={`${active.project.id}:${id}`} snapshot={active} documentId={id} onChange={saveEditor} onOpenEntity={nextId => navigateEditorTarget({ kind: 'entity', id: nextId })} onOpenNode={nextId => navigateEditorTarget({ kind: 'node', id: nextId })}/>} onSelectNode={id => navigateEditorTarget({ kind: 'node', id })}/>
     if (view === 'types') return <><NodeTypeManager snapshot={active} onChange={saveEditor}/><ConnectionTypeManager snapshot={active} onChange={saveEditor}/></>;
     if (view === 'tags') return <TagManager snapshot={active} onChange={saveEditor}/>;
@@ -319,6 +327,51 @@ export default function Home() {
   const accentOnSurface = contrastRatio(themeColor, contrastSurface);
   const whiteOnAccent = contrastRatio('#ffffff', themeColor);
   const contrastNeedsAttention = accentOnSurface < 4.5 || whiteOnAccent < 4.5;
+  useEffect(() => { setDriveBinding(active ? readDriveBinding(active.project.id) : undefined); }, [active?.project.id]);
+  async function connectDrive() {
+    const config = googleDriveConfig();
+    if (!config) throw new Error('Google Drive設定がありません。docs/google-drive-and-ai.md の「GitHub Pagesの公開設定」を参照してください。');
+    const credential = await connectGoogleDrive(config);
+    setDriveCredential(credential);
+  }
+  function requireDriveSession() {
+    const config = googleDriveConfig();
+    if (!config) throw new Error('Google Drive設定がありません。docs/google-drive-and-ai.md の「GitHub Pagesの公開設定」を参照してください。');
+    if (!driveCredential || driveCredential.expiresAt <= Date.now()) throw new Error('Google Driveへ接続してください。接続はこのページを閉じると解除されます。');
+    return { config, credential: driveCredential };
+  }
+  async function openFromDrive() {
+    const { config, credential } = requireDriveSession();
+    const selection = await pickGoogleDriveFile(config, credential);
+    if (!selection) return;
+    const loaded = await loadGoogleDriveSnapshot(selection.id, credential.accessToken);
+    await settle();
+    // Drive opens as a new local project so the current project is never replaced.
+    const newId = crypto.randomUUID(); const now = new Date().toISOString();
+    const snapshot = { ...loaded.snapshot, project: { ...loaded.snapshot.project, id: newId, title: loaded.snapshot.project.title || selection.name.replace(/\.json$/i, ''), createdAt: now, updatedAt: now }, sync: { projectId: newId, status: 'notConfigured' as const, lastSyncedRevision: null, baseCommitSha: null, lastSyncedAt: null } };
+    const row = await repo.current!.save(snapshot, 0);
+    writeDriveBinding(newId, { fileId: loaded.file.id, fileName: loaded.file.name || selection.name, version: loaded.file.version, email: credential.email });
+    await refresh(); select(row); setView('overview');
+  }
+  async function saveToDrive(asCopy: boolean) {
+    if (!current.current || !active) throw new Error('保存する作品を開いてください。');
+    const { credential } = requireDriveSession();
+    if (credential.email !== driveBinding?.email && !asCopy && driveBinding) throw new Error('この作品は別のGoogleアカウントに紐付いています。アカウント切替後は別ファイルとして保存してください。');
+    await settle();
+    const snapshot = current.current;
+    let file: Awaited<ReturnType<typeof createGoogleDriveFile>>;
+    if (!asCopy && driveBinding) file = await updateGoogleDriveFile(snapshot, driveBinding, credential.accessToken);
+    else {
+      const suggested = `${snapshot.project.title || 'シナリオ'}.json`;
+      const name = window.prompt('Driveに保存するファイル名', suggested);
+      if (!name?.trim()) return;
+      file = await createGoogleDriveFile(snapshot, name.trim(), credential.accessToken);
+    }
+    const binding = { fileId: file.id, fileName: file.name, version: file.version, email: credential.email };
+    writeDriveBinding(active.project.id, binding);
+    setDriveBinding(binding);
+    if (current.current !== snapshot) throw new Error('この保存中に追加編集がありました。変更は端末へ保存されています。続けて「Driveへ保存」を実行してください。');
+  }
   const projectTabsReady = !!active && tabsProjectId === active.project.id;
   const currentPinnedReferenceId = projectTabsReady && active?.entities.some(entity => entity.id === pinnedReferenceId) ? pinnedReferenceId : null;
   const menuGroups: ApplicationMenuGroup[] = [
@@ -327,6 +380,13 @@ export default function Home() {
       { label: 'プロジェクトを開く', disabled: !ready || busy, action: () => setView('overview') },
       { label: 'JSONファイルから復元…', disabled: !ready || busy, action: () => menuImport.current?.click() },
       { label: '今すぐ端末に保存', disabled: !active || busy, action: () => void run(settle) },
+      { label: 'Google Driveに接続', disabled: busy, action: () => void run(connectDrive) },
+      { label: driveCredential ? `Google Drive接続を解除（${driveCredential.email}）` : 'Google Drive未接続', disabled: !driveCredential, action: () => { disconnectGoogleDrive(driveCredential); setDriveCredential(undefined); } },
+      { label: driveBinding ? `この作品のDriveファイル: ${driveBinding.fileName}` : 'この作品はDrive未連携', disabled: true, action: () => {} },
+      { label: 'Driveから開く…', disabled: busy, action: () => void run(openFromDrive) },
+      { label: 'Driveへ新規保存…', disabled: !active || busy, action: () => void run(() => saveToDrive(true)) },
+      { label: 'Driveへ保存', disabled: !active || busy || !driveCredential || !driveBinding, action: () => void run(() => saveToDrive(false)) },
+      { label: 'Driveに別ファイルとして保存…', disabled: !active || busy || !driveCredential, action: () => void run(() => saveToDrive(true)) },
       { label: 'JSONバックアップを保存', disabled: !active, action: download },
       { label: 'Markdown・PDFを書き出す…', disabled: !active || busy, action: () => switchScreen('outline') },
       { label: '保存履歴を開く', disabled: !active || busy, action: () => void run(async () => { await settle(); setHistory(await repo.current!.revisions(active!.project.id)); setView('overview'); }) },
@@ -337,6 +397,7 @@ export default function Home() {
       { label: '設定資料を編集', disabled: !active || busy, action: () => switchScreen('entities') },
       { label: '前の項目へ戻る', disabled: !active || !backHistory.length || busy, action: goBack },
       { label: '次の項目へ進む', disabled: !active || !forwardHistory.length || busy, action: goForward },
+      { label: 'AIアシスタントを開く', disabled: !active || busy, checked: aiPanelOpen, action: () => setAiPanelOpen(value => !value) },
     ] },
     { label: '表示', items: [
       ...screens.filter(screen => !['types', 'tags'].includes(screen.id)).map(screen => ({ label: screen.label, checked: view === screen.id, disabled: (screen.id !== 'overview' && !active) || busy, action: () => switchScreen(screen.id) })),
@@ -351,7 +412,7 @@ export default function Home() {
     ] },
     { label: 'ヘルプ', items: [{ label: '操作と保存について', action: () => helpDialog.current?.showModal() }] },
   ];
-  return <div className={`app${view === 'graph' ? ' graph-mode' : ''}${focus ? ' focus' : ''}${active ? ' has-project' : ''}${active && view !== 'overview' ? ' workspace-mode' : ''}${navExpanded ? ' is-nav-expanded' : ''}${navigationVisible ? '' : ' navigation-hidden'}`}>
+  return <div className={`app${view === 'graph' ? ' graph-mode' : ''}${focus ? ' focus' : ''}${active ? ' has-project' : ''}${active && view !== 'overview' ? ' workspace-mode' : ''}${navExpanded ? ' is-nav-expanded' : ''}${navigationVisible ? '' : ' navigation-hidden'}`} aria-busy={busy} inert={busy}>
     <input ref={menuImport} type="file" accept="application/json,.json" hidden aria-label="JSONバックアップを選択" onChange={event => { const file = event.target.files?.[0]; if (file) void run(() => importFile(file)); event.target.value = ''; }}/>
     <dialog ref={helpDialog} className="application-help" aria-labelledby="application-help-title">
       <h2 id="application-help-title">操作と保存について</h2>
@@ -362,6 +423,7 @@ export default function Home() {
     </dialog>
     <header className="topbar"><a className="brand" href="/" aria-label="Scenario Editor ホーム">◈ <span>SCENARIO <b>EDITOR</b></span></a><div className="topbar-context"><strong>{active?.project.title || 'Scenario Editor'}</strong><span>{active ? ` / ${screenLabels[view]}` : ' / シナリオ執筆環境'}</span></div><button type="button" className="search-launch" disabled={!active} aria-keyshortcuts="Control+K Meta+K" onClick={() => setSearchOpen(true)}>検索 <kbd>Ctrl K</kbd></button><div className="appearance-controls">{view === 'overview' && <button className="focus-toggle" onClick={() => setFocus(!focus)}>{focus ? '通常表示' : '集中表示'}</button>}<details className="appearance-settings"><summary>外観</summary><div className="appearance-picker-list"><ColorPicker label="テーマカラー" value={themeColor} onChange={setThemeColor}/><ColorPicker label="背景色" value={backgroundColor} onChange={setBackgroundColor}/><label className="appearance-select">UIフォント<select value={uiFont} onChange={event => setUiFont(event.target.value as typeof uiFont)}><option value="mono">Consolas / Courier New</option><option value="sans">ゴシック体</option></select></label><label className="appearance-select">本文フォント<select value={bodyFont} onChange={event => setBodyFont(event.target.value as typeof bodyFont)}><option value="sans">ゴシック体</option><option value="serif">明朝体</option><option value="mono">Consolas / Courier New</option></select></label><label className="appearance-select">本文サイズ <output>{bodyFontSize}px</output><input type="range" min="14" max="24" step="1" value={bodyFontSize} onChange={event => setBodyFontSize(Number(event.target.value))}/></label><section className="contrast-check" aria-live="polite"><strong>テーマ色のコントラスト</strong><span>テーマ色／画面面 <b>{accentOnSurface.toFixed(1)}:1</b></span><span>白文字／テーマ色 <b>{whiteOnAccent.toFixed(1)}:1</b></span><p className={contrastNeedsAttention ? 'needs-attention' : 'contrast-ok'}>{contrastNeedsAttention ? '4.5:1を下回る組み合わせがあります。テーマ色または背景色を調整してください。' : '通常サイズの文字で読みやすさの目安を満たしています。'}</p></section></div></details><button className="theme-toggle" aria-label={theme === 'dark' ? 'ライトモードに切り替え' : 'ダークモードに切り替え'} aria-pressed={theme === 'dark'} onClick={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? '☀ ライト' : '☾ ダーク'}</button></div></header>
     <ApplicationMenu groups={menuGroups}/>
+    {aiPanelOpen && active && <AIAssistantPanel snapshot={active} selectedNodeId={openedNode} selection={aiSelection} credential={driveCredential} canApplySelection={view === 'writing' && !!aiSelection && aiSelection.documentId === active.nodes.find(node => node.id === openedNode)?.documentId} onClose={() => setAiPanelOpen(false)}/>}
     {active && <nav className={`activity-bar${navExpanded ? ' is-expanded' : ''}`} aria-label="作業画面"><button className="activity-bar__toggle" type="button" aria-label={navExpanded ? 'ナビゲーションを折りたたむ' : 'ナビゲーションを展開'} aria-expanded={navExpanded} title={navExpanded ? 'ナビゲーションを折りたたむ' : 'ナビゲーションを展開'} onClick={() => { const next = !navExpanded; setNavExpanded(next); try { localStorage.setItem('scenario-editor-nav-expanded', String(next)); } catch { /* Keep the current-session setting when browser storage is unavailable. */ } }}><span aria-hidden="true">{navExpanded ? '‹' : '›'}</span><small>{navExpanded ? 'ナビを閉じる' : 'ナビを開く'}</small></button><div className="activity-bar__divider"/><p className="activity-bar__heading">{navExpanded ? 'WORKSPACE' : ' '}</p>{screens.map(screen => <button className="activity-bar__item" key={screen.id} type="button" title={screen.label} aria-label={screen.label} aria-current={view === screen.id ? 'page' : undefined} onClick={() => switchScreen(screen.id)}><span aria-hidden="true">{screen.icon}</span><small>{screen.label}</small></button>)}</nav>}
     <div className="workspace" hidden={view !== 'overview'} style={view !== 'overview' ? { display: 'none' } : undefined}>
       <aside className="sidebar"><div className="eyebrow">YOUR WORKSPACE</div><h2>シナリオ</h2><button className="primary wide" disabled={!ready || busy} onClick={() => void run(async () => { await settle(); const row = await repo.current!.save(createProject(), 0); await refresh(); select(row); })}>＋ 新規プロジェクト</button>
@@ -390,7 +452,7 @@ export default function Home() {
       {view !== 'graph' && <div className="phase-three-panel">{PhaseThreeContent()}</div>}
       {active && <EntityHoverCard snapshot={active} onOpen={id => navigateEditorTarget({ kind: 'entity', id })}/>}
     </div>}
-    <footer className="bottom"><span>TRPG SCENARIO EDITOR</span><span>あなたの物語は、あなたの手元に。</span></footer>
+    <footer className="bottom"><span>TRPG SCENARIO EDITOR</span><span><a href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/privacy/`}>プライバシー</a>　·　あなたの物語は、あなたの手元に。</span></footer>
     <nav className="mobile-primary-nav" aria-label="メイン画面">{screens.map(screen => <button key={screen.id} disabled={screen.id !== 'overview' && !active} aria-current={view === screen.id ? 'page' : undefined} aria-label={screen.label} title={screen.label} onClick={() => switchScreen(screen.id)}><span aria-hidden="true">{screen.icon}</span><small>{screen.label}</small></button>)}</nav>
     {searchOpen && active && <CommandSearch snapshot={active} onClose={() => setSearchOpen(false)} onOpen={result => { setSearchOpen(false); navigateEditorTarget({ kind: result.kind, id: result.id }); }}/>}
   </div>;
