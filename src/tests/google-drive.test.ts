@@ -1,10 +1,27 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createProject } from '../domain/project';
-import { createGoogleDriveFile, googleDriveConfig, loadGoogleDriveSnapshot, updateGoogleDriveFile } from '../storage/google-drive';
+import { createGoogleDriveFile, googleDriveConfig, loadGoogleDriveSnapshot, updateGoogleDriveFile, waitForGoogleToken } from '../storage/google-drive';
 
-afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.useRealTimers(); });
 
 describe('Google Drive手動保存境界', () => {
+  it('OAuth応答を受け取ったら接続処理を完了する', async () => {
+    const result = await waitForGoogleToken(callback => callback({ access_token: 'session-token', expires_in: 1800 }));
+    expect(result).toEqual({ access_token: 'session-token', expires_in: 1800 });
+  });
+
+  it('OAuth応答が返らないとタイムアウトして固まらない', async () => {
+    vi.useFakeTimers();
+    const pending = waitForGoogleToken(() => {}, 1_000);
+    const assertion = expect(pending).rejects.toThrow('Google認証から応答がありませんでした');
+    await vi.advanceTimersByTimeAsync(1_000);
+    await assertion;
+  });
+
+  it('OAuthで拒否された理由を呼び出し元に返す', async () => {
+    await expect(waitForGoogleToken(callback => callback({ error: 'access_denied' }))).rejects.toThrow('Google Driveへのアクセスが許可されませんでした');
+  });
+
   it('ビルド時に埋め込まれる公開Google設定を直接参照する', () => {
     vi.stubEnv('NEXT_PUBLIC_GOOGLE_CLIENT_ID', 'client-id.apps.googleusercontent.com');
     vi.stubEnv('NEXT_PUBLIC_GOOGLE_API_KEY', 'public-api-key');

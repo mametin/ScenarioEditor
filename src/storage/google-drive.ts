@@ -9,6 +9,7 @@ export type DriveConfig = { clientId: string; apiKey: string; appId: string };
 export type DriveCredential = { accessToken: string; expiresAt: number; email: string };
 export type DriveFile = { id: string; name: string; version: string; modifiedTime?: string; mimeType?: string; trashed?: boolean };
 export type DriveBinding = { fileId: string; fileName: string; version: string; email: string };
+type GoogleTokenResponse = { access_token?: string; expires_in?: number; error?: string };
 
 declare global {
   interface Window {
@@ -67,22 +68,58 @@ async function loadGoogleLibraries() {
 
 export async function prepareGoogleDrive() { await loadGoogleLibraries(); }
 
+export function waitForGoogleToken(
+  start: (callback: (response: GoogleTokenResponse) => void) => void,
+  timeoutMs = 120_000,
+): Promise<GoogleTokenResponse> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (complete: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      complete();
+    };
+    const timeout = setTimeout(() => finish(() => reject(new Error('Google認証から応答がありませんでした。接続を確認して、もう一度お試しください。'))), timeoutMs);
+    try {
+      start(response => finish(() => {
+        if (!response.access_token) {
+          const message = response.error === 'access_denied'
+            ? 'Google Driveへのアクセスが許可されませんでした。'
+            : response.error ? `Google認証が完了しませんでした（${response.error}）。` : 'Google認証に失敗しました。';
+          reject(new Error(message));
+          return;
+        }
+        resolve(response);
+      }));
+    } catch (error) {
+      finish(() => reject(error));
+    }
+  });
+}
+
 export async function connectGoogleDrive(config: DriveConfig): Promise<DriveCredential> {
   await loadGoogleLibraries();
   const oauth = window.google?.accounts?.oauth2;
   if (!oauth) throw new Error('Google認証を初期化できませんでした。ページを再読み込みしてください。');
-  return new Promise((resolve, reject) => {
-    const client = oauth.initTokenClient({ client_id: config.clientId, scope: `${DRIVE_SCOPE} ${USERINFO_SCOPE}`, callback: response => {
-      if (!response.access_token) { reject(new Error(response.error === 'access_denied' ? 'Google Driveへのアクセスが許可されませんでした。' : 'Google認証に失敗しました。')); return; }
-      void fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: `Bearer ${response.access_token}` }, cache: 'no-store' }).then(async userResponse => {
-        if (!userResponse.ok) throw new Error('Googleアカウント情報を取得できませんでした。');
-        const user = await userResponse.json() as { email?: string };
-        if (!user.email) throw new Error('Googleアカウントのメールアドレスを確認できませんでした。');
-        resolve({ accessToken: response.access_token!, expiresAt: Date.now() + (response.expires_in ?? 3600) * 1000, email: user.email });
-      }).catch(reject);
-    } });
+  const response = await waitForGoogleToken(callback => {
+    const client = oauth.initTokenClient({ client_id: config.clientId, scope: `${DRIVE_SCOPE} ${USERINFO_SCOPE}`, callback });
     client.requestAccessToken({ prompt: 'select_account' });
   });
+  const accessToken = response.access_token!;
+  let userResponse: Response;
+  try {
+    userResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store', signal: AbortSignal.timeout(15_000),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'TimeoutError') throw new Error('Googleアカウントの確認が時間内に終わりませんでした。通信を確認して、もう一度お試しください。');
+    throw new Error('Googleアカウントを確認できませんでした。通信を確認して、もう一度お試しください。');
+  }
+  if (!userResponse.ok) throw new Error('Googleアカウント情報を取得できませんでした。再接続してください。');
+  const user = await userResponse.json() as { email?: string };
+  if (!user.email) throw new Error('Googleアカウントのメールアドレスを確認できませんでした。');
+  return { accessToken, expiresAt: Date.now() + (response.expires_in ?? 3600) * 1000, email: user.email };
 }
 
 export function disconnectGoogleDrive(credential?: DriveCredential) {

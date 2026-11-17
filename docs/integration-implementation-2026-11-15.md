@@ -64,3 +64,9 @@
 - GitHub ActionsのRepository VariablesとPages再実行は正常でしたが、`googleDriveConfig()`が`process.env`を分割代入していたため、Next.jsのブラウザー向けビルドで`NEXT_PUBLIC_*`値が埋め込まれていませんでした。
 - `process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID`等への直接参照に変更し、回帰テストを追加。
 - 型チェック、本番ビルド、既存テスト91件成功。テスト用OAuth IDが静的JavaScriptへ埋め込まれることを確認。
+
+## 2026-11-17 OAuth応答待ちの固まり対策
+
+- Google Identity Servicesの応答が返らない場合に接続Promiseが終わらず、操作中表示が解除されない経路があった。
+- OAuth応答を120秒、Google userinfo確認を15秒で打ち切り、拒否・タイムアウト理由を画面へ返す。
+- 回帰テストを追加。型チェック、本番ビルド、テスト94件、AI APIテスト6件が成功。
