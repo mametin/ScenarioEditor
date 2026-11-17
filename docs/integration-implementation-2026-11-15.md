@@ -58,3 +58,9 @@
 2. AI APIを低い利用上限で一つの外部環境へ公開し、許可アカウント、キャンセル、実際の料金表示、送信内容を確認。
 3. Driveの手動保存が安定した後に、ローカル世代、複数端末競合、削除・権限変更時の復旧を含む自動同期を設計。Driveのversion事前比較を原子性がある仕組みと見なさない。
 4. AIの永続利用量台帳、複数インスタンス制限、正確な差分・複数段落採用は、実測と構造保持テストの後に追加。
+
+## 2026-11-17 Google OAuth client_id修正
+
+- GitHub ActionsのRepository VariablesとPages再実行は正常でしたが、`googleDriveConfig()`が`process.env`を分割代入していたため、Next.jsのブラウザー向けビルドで`NEXT_PUBLIC_*`値が埋め込まれていませんでした。
+- `process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID`等への直接参照に変更し、回帰テストを追加。
+- 型チェック、本番ビルド、既存テスト91件成功。テスト用OAuth IDが静的JavaScriptへ埋め込まれることを確認。

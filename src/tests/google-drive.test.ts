@@ -1,10 +1,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createProject } from '../domain/project';
-import { createGoogleDriveFile, loadGoogleDriveSnapshot, updateGoogleDriveFile } from '../storage/google-drive';
+import { createGoogleDriveFile, googleDriveConfig, loadGoogleDriveSnapshot, updateGoogleDriveFile } from '../storage/google-drive';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('Google Drive手動保存境界', () => {
+  it('ビルド時に埋め込まれる公開Google設定を直接参照する', () => {
+    vi.stubEnv('NEXT_PUBLIC_GOOGLE_CLIENT_ID', 'client-id.apps.googleusercontent.com');
+    vi.stubEnv('NEXT_PUBLIC_GOOGLE_API_KEY', 'public-api-key');
+    vi.stubEnv('NEXT_PUBLIC_GOOGLE_APP_ID', '123456789');
+    expect(googleDriveConfig()).toEqual({
+      clientId: 'client-id.apps.googleusercontent.com',
+      apiKey: 'public-api-key',
+      appId: '123456789',
+    });
+  });
+
   it('有効なJSONと同じ版を確認してから作品を開く', async () => {
     const snapshot = createProject('Drive作品');
     const fetchMock = vi.fn()

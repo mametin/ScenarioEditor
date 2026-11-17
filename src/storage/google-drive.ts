@@ -32,7 +32,10 @@ declare global {
 let scriptsPromise: Promise<void> | undefined;
 
 export function googleDriveConfig(): DriveConfig | undefined {
-  const { NEXT_PUBLIC_GOOGLE_CLIENT_ID: clientId, NEXT_PUBLIC_GOOGLE_API_KEY: apiKey, NEXT_PUBLIC_GOOGLE_APP_ID: appId } = process.env;
+  // Next.js only inlines direct process.env.NEXT_PUBLIC_* references into browser bundles.
+  const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+  const appId = process.env.NEXT_PUBLIC_GOOGLE_APP_ID;
   return clientId && apiKey && appId ? { clientId, apiKey, appId } : undefined;
 }
 
